@@ -1,0 +1,13 @@
+BEGIN;
+CREATE TABLE IF NOT EXISTS app_state(id integer PRIMARY KEY CHECK(id=1), version bigint NOT NULL DEFAULT 0, data jsonb NOT NULL);
+CREATE TABLE IF NOT EXISTS schema_migrations(version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE app_state ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON app_state FROM PUBLIC;
+INSERT INTO schema_migrations(version) VALUES (1) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS advisor_accounts(username text PRIMARY KEY, name text NOT NULL, password_hash text NOT NULL, active boolean NOT NULL DEFAULT true, revision integer NOT NULL DEFAULT 1);
+ALTER TABLE advisor_accounts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON advisor_accounts FROM PUBLIC;
+INSERT INTO schema_migrations(version) VALUES (2) ON CONFLICT DO NOTHING;
+ALTER TABLE advisor_accounts ADD COLUMN IF NOT EXISTS credential_cipher text;
+INSERT INTO schema_migrations(version) VALUES (3) ON CONFLICT DO NOTHING;
+COMMIT;
