@@ -61,3 +61,15 @@ Los archivos `.local/`, `.env` y los respaldos se conservan fuera de Git. Para t
 Las cuentas de asesores usan hashes para autenticarse. La copia cifrada que permite al administrador consultar contraseñas nuevas depende de `.local/advisor-credentials.key`; conservar esa clave de forma privada junto con los respaldos necesarios.
 
 La publicación del código no despliega un servidor ni hace accesible la aplicación por Internet.
+
+## Despliegue en Vercel + Supabase
+
+La rama `deploy/vercel` permite publicar el sistema en internet sin cambiar el uso local.
+
+- `pnpm run build` genera `.vercel/output` (Build Output API) con una sola función Node que sirve la interfaz y la API.
+- Variables de entorno requeridas en Vercel:
+  - `DATABASE_URL`: cadena del pooler de Supabase (modo transacción, puerto 6543) con `?sslmode=no-verify`.
+  - `ADMIN_PASSWORD_HASH`: `sal:hash` scrypt, el mismo formato que genera `node src/password.ts`.
+  - `ADVISOR_CREDENTIALS_KEY`: 32 bytes en base64; reemplaza a `.local/advisor-credentials.key`.
+- Las sesiones se guardan en la tabla `app_sessions` para funcionar entre instancias; la migración la crea al arrancar.
+- Vercel limita el cuerpo de cada petición a 4,5 MB, por lo que los Excel a importar deben ser menores a ese tamaño.

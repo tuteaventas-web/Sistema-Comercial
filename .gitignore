@@ -19,3 +19,5 @@ vista-*.png
 tarjetas-*.png
 VERIFICACION*.txt
 prueba-*.txt
+.vercel/
+package-lock.json
