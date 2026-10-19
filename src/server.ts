@@ -1,3 +1,4 @@
+import {validateAccessPin} from './access-pin.ts';
 import http from 'node:http';
 import {editHistory} from './edit-history.ts';
 import {readFileSync,existsSync} from 'node:fs';
@@ -58,7 +59,7 @@ export const server=http.createServer(async(req,res)=>{
    const ip=clientAddress(req);let a=attempts.get(ip);if(!a||Date.now()-a.at>900000){a={count:0,at:Date.now()};attempts.set(ip,a);}if(++a.count>10){send(429,{error:'Demasiados intentos. Espere 15 minutos.'});return;}
    const {password,role,username}=JSON.parse((await body(req)).toString());let account='administrador';let revision;let expected=process.env.ADMIN_PASSWORD_HASH||'';
    if(role==='advisor'){const row=(await pool?.query('SELECT * FROM advisor_accounts WHERE username=$1 AND active=true',[String(username||'').trim().toLowerCase()]))?.rows[0];expected=row?.password_hash||'';account=row?row.name+' ('+row.username+')':'';revision=row?.revision;}
-   const [salt,hash]=expected.split(':');const actual=salt?scryptSync(String(password),salt,64):Buffer.alloc(0);const stored=hash?Buffer.from(hash,'hex'):Buffer.alloc(1);if(actual.length!==stored.length||!timingSafeEqual(actual,stored)){send(401,{error:'Usuario o contraseña incorrectos, o cuenta inactiva'});return;}
+   const [salt,hash]=expected.split(':');const actual=salt?scryptSync(String(password),salt,64):Buffer.alloc(0);const stored=hash?Buffer.from(hash,'hex'):Buffer.alloc(1);if(actual.length!==stored.length||!timingSafeEqual(actual,stored)){send(401,{error:'Usuario o PIN incorrectos, o cuenta inactiva'});return;}
    a.count=0;const token=randomBytes(32).toString('hex');await saveSession(token,{expires:Date.now()+8*3600000,role:role==='advisor'?'advisor':'admin',account,username:role==='advisor'?String(username).trim().toLowerCase():undefined,revision});res.setHeader('Set-Cookie',`session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${secure}`);send(200,{ok:true,admin:role!=='advisor',canEdit:true,role:role==='advisor'?'advisor':'admin',account});return;
   }
   if(url.pathname==='/api/logout'&&req.method==='POST'){await dropSession(req);res.setHeader('Set-Cookie',`session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure}`);send(200,{ok:true});return;}
@@ -75,8 +76,8 @@ export const server=http.createServer(async(req,res)=>{
     const p=JSON.parse((await body(req)).toString());const username=String(p.username||'').trim().toLowerCase();const name=String(p.name||'').trim();
     if(!/^[a-z0-9._-]{3,60}$/.test(username)||!name||name.length>120)throw Error('Indique un usuario de 3 a 60 caracteres (letras, números, punto, guion) y un nombre de hasta 120 caracteres');
     const old=(await pool.query('SELECT username FROM advisor_accounts WHERE username=$1',[username])).rows[0];let hash='';let encrypted:string|null=null;
-    if(p.password){if(typeof p.password!=='string'||p.password.length<12||p.password.length>256)throw Error('La contraseña debe tener entre 12 y 256 caracteres');const salt=randomBytes(24).toString('hex');hash=salt+':'+scryptSync(p.password,salt,64).toString('hex');encrypted=encryptCredential(p.password);}
-    if(!old&&!hash)throw Error('Defina una contraseña para el nuevo asesor');
+    if(p.password){validateAccessPin(p.password);const salt=randomBytes(24).toString('hex');hash=salt+':'+scryptSync(p.password,salt,64).toString('hex');encrypted=encryptCredential(p.password);}
+    if(!old&&!hash)throw Error('Defina un PIN para el nuevo asesor');
     await pool.query("INSERT INTO advisor_accounts(username,name,password_hash,active,credential_cipher) VALUES($1,$2,$3,$4,$5) ON CONFLICT(username) DO UPDATE SET name=EXCLUDED.name,password_hash=CASE WHEN EXCLUDED.password_hash='' THEN advisor_accounts.password_hash ELSE EXCLUDED.password_hash END,active=EXCLUDED.active,revision=advisor_accounts.revision+1,credential_cipher=COALESCE(EXCLUDED.credential_cipher,advisor_accounts.credential_cipher)",[username,name,hash,p.active!==false,encrypted]);
    }else if(req.method!=='GET'){send(405,{error:'Método no permitido'});return;}
    send(200,{accounts:(await pool.query('SELECT username,name,active FROM advisor_accounts ORDER BY name')).rows});return;
