@@ -1,0 +1,25 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import ExcelJS from 'exceljs';import {bulkTemplate} from '../src/template.ts';
+import {initial,operate,balances,id} from '../src/domain.ts';import {parseBulk,applyBulk,deleteBulk,BulkErrors} from '../src/bulk.ts';
+async function sheet(rows:any[][]){const wb=new ExcelJS.Workbook();await wb.xlsx.load(await bulkTemplate(initial().catalogs) as any);const ws=wb.getWorksheet('Carga')!;rows.forEach((v,i)=>ws.getRow(5+i).values=v);return Buffer.from(await wb.xlsx.writeBuffer()).toString('base64');}
+const fixture=()=>{const s:any=initial();return {s,type:s.catalogs.types[0].name,resp:s.catalogs.responsible[0].name};};
+test('Carga masiva crea clientes, vínculos y documentos en cualquier orden y queda registrada',async()=>{const {s,type,resp}=fixture();
+ const rows=await parseBulk(await sheet([['B-2','','','B-1','15/10/2026',type,'1','',resp,'segundo'],['B-1','Ana','Luis','','15/10/2026',type,'2','',resp,'anillado'],['B-3','Pedro','','','','','','','','solo alta']]));
+ const load=applyBulk(s,rows,'admin','datos.xlsx');
+ assert.equal(s.clients.length,2);assert.equal(s.codes.find((c:any)=>c.code==='B-2').clientId,s.codes.find((c:any)=>c.code==='B-1').clientId);
+ assert.equal(load.created.blocks.length,2);assert.equal(s.blocks[0].description,type);assert.equal(s.loads.length,1);assert.match(s.audit.at(-1).reason,/solo alta/);});
+test('Un solo error impide cargar y lista las filas a corregir',async()=>{const {s,type,resp}=fixture();const before=JSON.stringify(s.clients);
+ const rows=await parseBulk(await sheet([['C-1','Ana','','','15/10/2026',type,'1','',resp,''],['C-2','','','NOPE','','','','','',''],['C-1','Otra','','','31/02/2026','X','0','','Nadie','']]));
+ const draft=structuredClone(s);await assert.rejects(async()=>applyBulk(draft,rows,'admin','f.xlsx'),(e:any)=>e instanceof BulkErrors&&e.list.length===3);assert.equal(JSON.stringify(s.clients),before);});
+test('Eliminar una carga quita lo creado y conserva el registro',async()=>{const {s,type,resp}=fixture();
+ const load=applyBulk(s,await parseBulk(await sheet([['D-1','Ana','','','15/10/2026',type,'3','',resp,'']])),'admin','f.xlsx');
+ deleteBulk(s,load.id,'admin');assert.equal(s.clients.length,0);assert.equal(s.blocks.length,0);assert.equal(s.events.length,0);assert.equal(s.loads[0].deleted,true);
+ assert.throws(()=>deleteBulk(s,load.id,'admin'),/ya eliminada/);});
+test('No se elimina una carga si después se movieron sus documentos',async()=>{const {s,type,resp}=fixture();
+ const load=applyBulk(s,await parseBulk(await sheet([['E-1','Ana','','','15/10/2026',type,'3','',resp,'']])),'admin','f.xlsx');const b=s.blocks[0].id;
+ operate(s,{kind:'move',key:id(),data:{action:'Traslado',date:'2026-10-16',responsible:s.catalogs.responsible[0].id,lines:[{blockId:b,from:'Comercial',to:'Operativo',quantity:1}]}});
+ assert.throws(()=>deleteBulk(s,load.id,'admin'),/movimientos posteriores/);assert.equal(balances(s,b).length,2);});
+test('Rechaza archivos que no son la plantilla',async()=>{const wb=new ExcelJS.Workbook();wb.addWorksheet('X').addRow(['a','b']);await assert.rejects(parseBulk(Buffer.from(await wb.xlsx.writeBuffer()).toString('base64')),/plantilla oficial/);});
+test('No se elimina una carga si se editó un documento cargado',async()=>{const {s,type,resp}=fixture();
+ const load=applyBulk(s,await parseBulk(await sheet([['F-1','Ana','','','15/10/2026',type,'3','',resp,'']])),'admin','f.xlsx');const b=s.blocks[0];
+ operate(s,{kind:'editBlock',key:id(),data:{id:b.id,description:'Corregido',notes:'',reason:'x',expectedRevision:b.revision||0}});
+ assert.throws(()=>deleteBulk(s,load.id,'admin'),/editaron o eliminaron/);});

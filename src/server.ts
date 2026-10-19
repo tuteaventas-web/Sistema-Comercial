@@ -7,6 +7,8 @@ import ExcelJS from 'exceljs';
 import {initial,operate,balances} from './domain.ts';
 import {encryptCredential,decryptCredential} from './credentials.ts';
 import {previewImport} from './imports.ts';
+import {bulkTemplate} from './template.ts';
+import {parseBulk,applyBulk,deleteBulk,BulkErrors} from './bulk.ts';
 import {filterBlocks,filterEvents} from '../public/query.js';
 const pool=process.env.DATABASE_URL?new pg.Pool({connectionString:process.env.DATABASE_URL,max:5,connectionTimeoutMillis:10000}):null;
 type Session={expires:number,role:string,account:string,username?:string,revision?:number};
@@ -80,9 +82,21 @@ export const server=http.createServer(async(req,res)=>{
    send(200,{accounts:(await pool.query('SELECT username,name,active FROM advisor_accounts ORDER BY name')).rows});return;
   }
   if(req.method==='POST'&&['/api/import-preview'].includes(url.pathname)&&!auth(req)){send(403,{error:'Acceso administrativo requerido'});return;}
-  if(url.pathname==='/api/data'&&req.method==='GET'){const s=await state();const blocks=filtered(s,url.searchParams);const visible=new Set(blocks.map((b:any)=>b.id));send(200,{...s,editHistory:editHistory(s,visible),audit:auth(req)?s.audit:undefined,requests:undefined,requestDigests:undefined,requestResults:undefined,events:s.events.filter((e:any)=>!e.deleted).map((e:any)=>({...e,lines:e.lines.filter((l:any)=>!l.deleted&&visible.has(l.blockId))})).filter((e:any)=>e.lines.length),blocks});return;}
+  if(url.pathname==='/api/data'&&req.method==='GET'){const s=await state();const blocks=filtered(s,url.searchParams);const visible=new Set(blocks.map((b:any)=>b.id));send(200,{...s,editHistory:editHistory(s,visible),audit:auth(req)?s.audit:undefined,loads:auth(req)?s.loads||[]:undefined,requests:undefined,requestDigests:undefined,requestResults:undefined,events:s.events.filter((e:any)=>!e.deleted).map((e:any)=>({...e,lines:e.lines.filter((l:any)=>!l.deleted&&visible.has(l.blockId))})).filter((e:any)=>e.lines.length),blocks});return;}
   if(url.pathname==='/api/deleted'&&req.method==='GET'){
    if(!auth(req)){send(403,{error:'Acceso administrativo requerido'});return;}const s=await state();send(200,{blocks:s.blocks.filter((b:any)=>b.deleted),events:s.events.filter((e:any)=>e.deleted)});return;
+  }
+  if(['/api/bulk-preview','/api/bulk-load','/api/bulk-delete'].includes(url.pathname)&&req.method==='POST'){
+   if(!auth(req)){send(403,{error:'Solo el administrador puede gestionar cargas masivas'});return;}if(!pool)throw Error('PostgreSQL no configurado');
+   const input=JSON.parse((await body(req)).toString());const account=session(req)?.account||'administrador';
+   if(url.pathname==='/api/bulk-delete')confirmDeletion(req,input.deletePassword);
+   const rows=url.pathname==='/api/bulk-delete'?[]:await parseBulk(String(input.base64||''));
+   const db=await pool.connect();try{await db.query('BEGIN');const s=(await db.query('SELECT data FROM app_state WHERE id=1 FOR UPDATE')).rows[0].data;
+    try{const result=url.pathname==='/api/bulk-delete'?deleteBulk(s,String(input.id||''),account):applyBulk(s,rows,account,input.file);
+     if(url.pathname==='/api/bulk-preview'){await db.query('ROLLBACK');send(200,{ok:true,rows:rows.length,summary:result.summary});return;}
+     await db.query('UPDATE app_state SET data=$1,version=version+1 WHERE id=1',[JSON.stringify(s)]);await db.query('COMMIT');send(200,{ok:true,load:result});
+    }catch(e){await db.query('ROLLBACK');if(e instanceof BulkErrors){send(422,{error:e.message,errors:e.list});return;}throw e;}
+   }finally{db.release();}return;
   }
   if(url.pathname==='/api/operate'&&req.method==='POST'){
    if(!pool)throw Error('PostgreSQL no configurado');const input=JSON.parse((await body(req)).toString());if(!await permitted(req,input)){send(403,{error:'Su perfil no permite esta operación'});return;}if(input.kind==='catalogDelete'){confirmDeletion(req,input.data?.deletePassword);delete input.data.deletePassword;}const db=await pool.connect();try{await db.query('BEGIN');const s=(await db.query('SELECT data FROM app_state WHERE id=1 FOR UPDATE')).rows[0].data;if(!auth(req)&&input.kind==='code'&&s.codes.some((c:any)=>c.code===String(input.data?.code||'').trim())){await db.query('ROLLBACK');send(403,{error:'El código ya existe; solo el administrador puede cambiar su vínculo'});return;}const result=operate(s,input,session(req)?.account);await db.query('UPDATE app_state SET data=$1,version=version+1 WHERE id=1',[JSON.stringify(s)]);await db.query('COMMIT');send(200,result);}catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}return;
@@ -103,6 +117,7 @@ export const server=http.createServer(async(req,res)=>{
    const sheet=book.addWorksheet(history?'Historial':'Situación actual');sheet.addRow(['Cliente','Código original','Códigos vinculados','Fecha','Tipo','Descripción','Cantidad','Ubicación','Almacenamiento','Responsable','Acción','Observaciones','ID bloque','ID movimiento']);sheet.addRows(lines);sheet.getColumn(2).numFmt='@';sheet.getColumn(4).numFmt='dd/mm/yyyy';sheet.columns.forEach(c=>c.width=24);sheet.getRow(1).font={bold:true};sheet.views=[{state:'frozen',ySplit:1}];if(q.get('mode')==='legacy'){book.removeWorksheet(sheet.id);const sh=book.addWorksheet('Legados sin conciliar');sh.addRow(['ID','Original','Estado','Bloque vinculado','Motivo de conciliación']);for(const l of s.legacy)sh.addRow([l.id,JSON.stringify(l.original),l.pending?'Pendiente de conciliación':'Conciliado',l.blockId||'',l.reason||'']);}
    res.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':`attachment; filename="registros-${q.get('mode')||'actual'}-${q.get('start')||'inicio'}-${q.get('end')||'fin'}-${q.get('order')||'desc'}.xlsx"`});res.end(Buffer.from(await book.xlsx.writeBuffer()));return;
   }
+  if(url.pathname==='/plantilla-carga.xlsx'&&req.method==='GET'){if(!auth(req)){send(403,{error:'Acceso administrativo requerido'});return;}res.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="plantilla-carga.xlsx"','Cache-Control':'no-store'});res.end(await bulkTemplate((await state()).catalogs));return;}
   if(req.method==='GET'&&!url.pathname.startsWith('/api/')){const file=url.pathname==='/'?'index.html':url.pathname.slice(1);if(!['index.html','app.js','query.js','audit.js','style.css'].includes(file)){send(404,{error:'No encontrado'});return;}res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html; charset=utf-8'});res.end(readFileSync(new URL(file,root)));return;}
   send(404,{error:'No encontrado'});
  }catch(e){const code=(e as any)?.code==='STALE_REVISION'?'STALE_REVISION':undefined;send(code?409:400,{error:e instanceof Error?e.message:'Error inesperado',code});}
