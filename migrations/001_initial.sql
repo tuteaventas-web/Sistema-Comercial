@@ -10,4 +10,8 @@ REVOKE ALL ON advisor_accounts FROM PUBLIC;
 INSERT INTO schema_migrations(version) VALUES (2) ON CONFLICT DO NOTHING;
 ALTER TABLE advisor_accounts ADD COLUMN IF NOT EXISTS credential_cipher text;
 INSERT INTO schema_migrations(version) VALUES (3) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS app_sessions(token_hash text PRIMARY KEY, role text NOT NULL, account text NOT NULL, username text, revision integer, expires timestamptz NOT NULL);
+ALTER TABLE app_sessions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON app_sessions FROM PUBLIC;
+INSERT INTO schema_migrations(version) VALUES (4) ON CONFLICT DO NOTHING;
 COMMIT;

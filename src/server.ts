@@ -9,10 +9,19 @@ import {encryptCredential,decryptCredential} from './credentials.ts';
 import {previewImport} from './imports.ts';
 import {filterBlocks,filterEvents} from '../public/query.js';
 const pool=process.env.DATABASE_URL?new pg.Pool({connectionString:process.env.DATABASE_URL,max:5,connectionTimeoutMillis:10000}):null;
-const sessions=new Map<string,{expires:number,role:string,account:string,username?:string,revision?:number}>();const attempts=new Map<string,{count:number,at:number}>();
+type Session={expires:number,role:string,account:string,username?:string,revision?:number};
+// Sessions live in PostgreSQL so they survive across serverless instances; the map is only a fallback without database.
+const sessions=new Map<string,Session>();const loaded=new WeakMap<http.IncomingMessage,Session|undefined>();
+const behindProxy=!!process.env.VERCEL;
+function sessionToken(req:http.IncomingMessage){return req.headers.cookie?.match(/(?:^|; )session=([a-f0-9]+)/)?.[1];}
+function tokenHash(token:string){return createHash('sha256').update(token).digest('hex');}
+function clientAddress(req:http.IncomingMessage){return behindProxy?String(req.headers['x-forwarded-for']||'').split(',')[0].trim():req.socket.remoteAddress||'';}
+async function loadSession(req:http.IncomingMessage){const token=sessionToken(req);let value:Session|undefined;if(token&&pool){const row=(await pool.query('SELECT role,account,username,revision,expires FROM app_sessions WHERE token_hash=$1 AND expires>now()',[tokenHash(token)])).rows[0];if(row)value={expires:new Date(row.expires).getTime(),role:row.role,account:row.account,username:row.username??undefined,revision:row.revision??undefined};}else if(token)value=sessions.get(token);loaded.set(req,value);}
+async function saveSession(token:string,value:Session){if(!pool){sessions.set(token,value);return;}await pool.query('DELETE FROM app_sessions WHERE expires<now()');await pool.query('INSERT INTO app_sessions(token_hash,role,account,username,revision,expires) VALUES($1,$2,$3,$4,$5,$6)',[tokenHash(token),value.role,value.account,value.username??null,value.revision??null,new Date(value.expires)]);}
+async function dropSession(req:http.IncomingMessage){const token=sessionToken(req);loaded.set(req,undefined);if(!token)return;sessions.delete(token);if(pool)await pool.query('DELETE FROM app_sessions WHERE token_hash=$1',[tokenHash(token)]);}const attempts=new Map<string,{count:number,at:number}>();
 const root=new URL('../public/',import.meta.url);const port=Number(process.env.PORT||3000);
 if(pool){await pool.query(readFileSync(new URL('../migrations/001_initial.sql',import.meta.url),'utf8'));await pool.query('INSERT INTO app_state(id,data) VALUES(1,$1) ON CONFLICT DO NOTHING',[JSON.stringify(initial())]);}
-function session(req:http.IncomingMessage){const token=req.headers.cookie?.match(/(?:^|; )session=([a-f0-9]+)/)?.[1];const value=token?sessions.get(token):undefined;return value&&value.expires>Date.now()?value:undefined;}
+function session(req:http.IncomingMessage){const value=loaded.get(req);return value&&value.expires>Date.now()?value:undefined;}
 function auth(req:http.IncomingMessage){return session(req)?.role==='admin';}
 function allowed(req:http.IncomingMessage,input:any){
  if(auth(req))return true;if(session(req)?.role!=='advisor')return false;
@@ -28,7 +37,7 @@ async function permitted(req:http.IncomingMessage,input:any){
 }
 const deletionAttempts=new Map<string,{count:number,at:number}>();
 function confirmDeletion(req:http.IncomingMessage,value:any){
- const identity=req.socket.remoteAddress||'';let attempt=deletionAttempts.get(identity);if(!attempt||Date.now()-attempt.at>900000){attempt={count:0,at:Date.now()};deletionAttempts.set(identity,attempt);}
+ const identity=clientAddress(req);let attempt=deletionAttempts.get(identity);if(!attempt||Date.now()-attempt.at>900000){attempt={count:0,at:Date.now()};deletionAttempts.set(identity,attempt);}
  if(attempt.count>=10)throw Error('Demasiados intentos. Espere 15 minutos.');
  if(!timingSafeEqual(scryptSync(String(value||''),'archivo-delete-v1',64),scryptSync('1608','archivo-delete-v1',64))){attempt.count++;throw Error('Contraseña incorrecta');}attempt.count=0;
 }
@@ -37,20 +46,20 @@ async function state(){if(!pool)throw Error('Base de datos no configurada. Consu
 function projected(s:any){return {...s,blocks:s.blocks.filter((b:any)=>!b.deleted).map((b:any)=>({...b,balances:balances(s,b.id)}))};}
 function filtered(s:any,q:URLSearchParams){return filterBlocks(projected(s),q);}
 export const server=http.createServer(async(req,res)=>{
- const url=new URL(req.url||'/',`http://${req.headers.host}`);const send=(status:number,value:any)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value));};
+ const protocol=behindProxy?String(req.headers['x-forwarded-proto']||'https').split(',')[0]:'http';const url=new URL(req.url||'/',`${protocol}://${req.headers.host}`);const secure=protocol==='https'?'; Secure':'';const send=(status:number,value:any)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value));};
  try{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');res.setHeader('Content-Security-Policy',"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'");
   if(req.method!=='GET'&&req.headers.origin!==url.origin){send(403,{error:'Origen no autorizado'});return;}
-  const viewer=session(req);if(viewer?.role==='advisor'){const account=await pool?.query('SELECT active,revision FROM advisor_accounts WHERE username=$1',[viewer.username]);if(!account?.rows[0]?.active||account.rows[0].revision!==viewer.revision){const token=req.headers.cookie?.match(/session=([a-f0-9]+)/)?.[1];if(token)sessions.delete(token);}}
+  await loadSession(req);const viewer=session(req);if(viewer?.role==='advisor'){const account=await pool?.query('SELECT active,revision FROM advisor_accounts WHERE username=$1',[viewer.username]);if(!account?.rows[0]?.active||account.rows[0].revision!==viewer.revision)await dropSession(req);}
   if(url.pathname==='/api/session'&&req.method==='GET'){send(200,{admin:auth(req),canEdit:!!session(req),role:session(req)?.role||'reader',account:session(req)?.account,database:!!pool,capabilities:{blockInitialFields:true,catalogReorder:true,editHistory:true,customerPeople:true}});return;}
   if(url.pathname==='/api/login'&&req.method==='POST'){
-   const ip=req.socket.remoteAddress||'';let a=attempts.get(ip);if(!a||Date.now()-a.at>900000){a={count:0,at:Date.now()};attempts.set(ip,a);}if(++a.count>10){send(429,{error:'Demasiados intentos. Espere 15 minutos.'});return;}
+   const ip=clientAddress(req);let a=attempts.get(ip);if(!a||Date.now()-a.at>900000){a={count:0,at:Date.now()};attempts.set(ip,a);}if(++a.count>10){send(429,{error:'Demasiados intentos. Espere 15 minutos.'});return;}
    const {password,role,username}=JSON.parse((await body(req)).toString());let account='administrador';let revision;let expected=process.env.ADMIN_PASSWORD_HASH||'';
    if(role==='advisor'){const row=(await pool?.query('SELECT * FROM advisor_accounts WHERE username=$1 AND active=true',[String(username||'').trim().toLowerCase()]))?.rows[0];expected=row?.password_hash||'';account=row?row.name+' ('+row.username+')':'';revision=row?.revision;}
    const [salt,hash]=expected.split(':');const actual=salt?scryptSync(String(password),salt,64):Buffer.alloc(0);const stored=hash?Buffer.from(hash,'hex'):Buffer.alloc(1);if(actual.length!==stored.length||!timingSafeEqual(actual,stored)){send(401,{error:'Usuario o contraseña incorrectos, o cuenta inactiva'});return;}
-   a.count=0;const token=randomBytes(32).toString('hex');sessions.set(token,{expires:Date.now()+8*3600000,role:role==='advisor'?'advisor':'admin',account,username:role==='advisor'?String(username).trim().toLowerCase():undefined,revision});res.setHeader('Set-Cookie',`session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);send(200,{ok:true,admin:role!=='advisor',canEdit:true,role:role==='advisor'?'advisor':'admin',account});return;
+   a.count=0;const token=randomBytes(32).toString('hex');await saveSession(token,{expires:Date.now()+8*3600000,role:role==='advisor'?'advisor':'admin',account,username:role==='advisor'?String(username).trim().toLowerCase():undefined,revision});res.setHeader('Set-Cookie',`session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${secure}`);send(200,{ok:true,admin:role!=='advisor',canEdit:true,role:role==='advisor'?'advisor':'admin',account});return;
   }
-  if(url.pathname==='/api/logout'&&req.method==='POST'){const t=req.headers.cookie?.match(/session=([a-f0-9]+)/)?.[1];if(t)sessions.delete(t);res.setHeader('Set-Cookie','session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');send(200,{ok:true});return;}
+  if(url.pathname==='/api/logout'&&req.method==='POST'){await dropSession(req);res.setHeader('Set-Cookie',`session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure}`);send(200,{ok:true});return;}
   if(req.method==='POST'&&url.pathname.startsWith('/api/')&&!session(req)){send(403,{error:'Acceso administrativo requerido'});return;}
   if(['/api/advisors/credential','/api/advisors/delete'].includes(url.pathname)&&req.method==='POST'){
    if(!auth(req)){send(403,{error:'Solo el administrador puede gestionar cuentas'});return;}if(!pool)throw Error('PostgreSQL no configurado');const p=JSON.parse((await body(req)).toString());const username=String(p.username||'').trim().toLowerCase();
