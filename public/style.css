@@ -575,3 +575,5 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; font-fami
 #move{display:inline-flex;align-items:center;justify-content:center;gap:6px}#move .destination-plane{flex:none;vertical-align:middle}
 
 .block-entry-actions{display:flex;justify-content:flex-end;margin-bottom:6px}.block-entry-actions button{display:inline-flex;align-items:center;gap:5px;padding:6px 9px}.block-entry-actions svg{width:16px;height:16px;flex:none}
+
+.card-linked-codes{margin:10px 0 12px;font-size:11px;line-height:1.5}.card-linked-codes-title{display:block;margin-bottom:5px}.card-linked-codes ul{display:grid;gap:5px;margin:0;padding:0;list-style:none}.card-linked-codes li{margin:0;padding:0;word-break:normal;overflow-wrap:anywhere}
