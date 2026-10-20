@@ -55,6 +55,7 @@ export const server=http.createServer(async(req,res)=>{
   if(req.method!=='GET'&&req.headers.origin!==url.origin){send(403,{error:'Origen no autorizado'});return;}
   await loadSession(req);const viewer=session(req);if(viewer?.role==='advisor'){const account=await pool?.query('SELECT active,revision FROM advisor_accounts WHERE username=$1',[viewer.username]);if(!account?.rows[0]?.active||account.rows[0].revision!==viewer.revision)await dropSession(req);}
   if(url.pathname==='/api/session'&&req.method==='GET'){send(200,{admin:auth(req),canEdit:!!session(req),role:session(req)?.role||'reader',account:session(req)?.account,database:!!pool,capabilities:{blockInitialFields:true,catalogReorder:true,editHistory:true,customerPeople:true}});return;}
+  if(url.pathname==='/api/login-options'&&req.method==='GET'){const accounts=pool?(await pool.query('SELECT username,name FROM advisor_accounts WHERE active=true ORDER BY name')).rows:[];send(200,{accounts});return;}
   if(url.pathname==='/api/login'&&req.method==='POST'){
    const ip=clientAddress(req);let a=attempts.get(ip);if(!a||Date.now()-a.at>900000){a={count:0,at:Date.now()};attempts.set(ip,a);}if(++a.count>10){send(429,{error:'Demasiados intentos. Espere 15 minutos.'});return;}
    const {password,role,username}=JSON.parse((await body(req)).toString());let account='administrador';let revision;let expected=process.env.ADMIN_PASSWORD_HASH||'';
