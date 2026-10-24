@@ -1,5 +1,6 @@
 import { randomUUID,createHash } from 'node:crypto';
 import {registerImportedRows} from './imports.ts';
+import {auditSnapshots} from './audit-diff.ts';
 export const id = () => randomUUID();
 export const initial = () => ({clients:[],codes:[],blocks:[],events:[],legacy:[],audit:[],requests:[],catalogs:{responsible:['Ada','Evelyn','Chrystel'].map(name=>({id:id(),name,active:true})),types:['Carta de Aceptación','Plan de Tesis','Informe Final','Encuestas o Entrevistas','Validación de Instrumentos','Archivo de observación','Dictámenes','Archivo distinto (Material extra)','Sustentación'].map(name=>({id:id(),name,active:true})),storage:['Bolsa de papel','Bolsa de plástico','Folder','Escritorio','Carpeta Leo'].map(name=>({id:id(),name,active:true}))}});
 export function requireValue(ok:any,message:string){if(!ok)throw Error(message);}
@@ -115,7 +116,7 @@ export function operate(s:any,input:any,account='administrador'){
  validateState(s);
  const eventId=['receive','move','reopen'].includes(kind)?s.events.at(-1)?.id:undefined;
  const result={ok:true,...(eventId?{eventId}: {}),...(importSummary?{importSummary}:{})};
- s.audit.push({id:id(),at:new Date().toISOString(),account,kind,responsible:p.responsible||null,reason:p.reason||p.notes||'',before:JSON.parse(before),after:JSON.parse(JSON.stringify({...s,audit:[],requests:[],requestDigests:{},requestResults:{}}))});s.requests.push(input.key);s.requestDigests??={};s.requestDigests[input.key]=fingerprint;s.requestResults??={};s.requestResults[input.key]=result;return result;
+ s.audit.push({id:id(),at:new Date().toISOString(),account,kind,responsible:p.responsible||null,reason:p.reason||p.notes||'',...auditSnapshots(JSON.parse(before),JSON.parse(JSON.stringify({...s,audit:[],requests:[],requestDigests:{},requestResults:{}})))});s.requests.push(input.key);s.requestDigests??={};s.requestDigests[input.key]=fingerprint;s.requestResults??={};s.requestResults[input.key]=result;return result;
 }
 function addEvent(s:any,p:any,account:string){requireValue(s.catalogs.responsible.some((r:any)=>r.id===p.responsible&&r.active),'Seleccione responsable');s.events.push({id:id(),action:p.action,date:date(p.date),at:new Date().toISOString(),responsible:p.responsible,account,notes:p.notes||'',deliveredBy:p.deliveredBy||'',lines:p.lines.map((l:any)=>({...l,codeId:s.blocks.find((b:any)=>b.id===l.blockId)?.codeId})),deleted:false,revision:1});for(const blockId of new Set(p.lines.map((l:any)=>l.blockId))){const block=s.blocks.find((b:any)=>b.id===blockId);if(block)revise(block);}}
 export function validateState(s:any){
