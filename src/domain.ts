@@ -33,6 +33,13 @@ export function operate(s:any,input:any,account='administrador'){
   requireValue(p.name?.trim()&&p.code?.trim(),'Nombre y código obligatorios');requireValue(!s.codes.some((x:any)=>x.code===p.code.trim()),'Código ya registrado');
   const personNames=[p.name.trim(),String(p.secondName||'').trim()].filter(Boolean);const client={id:id(),name:personNames.join(' y '),personNames};s.clients.push(client);s.codes.push({id:id(),clientId:client.id,code:p.code.trim(),current:true});
  }else if(kind==='editClient'){
+  if(p.linkCode!==undefined){
+   const value=String(p.linkCode||'').trim();requireValue(value&&p.confirmLink===true,'Indique el código y confirme su vinculación');
+   requireValue(s.clients.some((x:any)=>x.id===p.id),'Cliente inexistente');
+   const code=s.codes.find((x:any)=>x.code===value);if(code)checkRevision(code,p.expectedCodeRevision);
+   const client=s.clients.find((x:any)=>x.id===p.id);checkRevision(client,p.expectedRevision);requireValue(p.name?.trim(),'Nombre obligatorio');
+   if(code){code.clientId=p.id;revise(code);}else s.codes.push({id:id(),clientId:p.id,code:value,current:false});
+  }
   const c=s.clients.find((x:any)=>x.id===p.id);requireValue(c&&p.name?.trim(),'Cliente y nombre obligatorios');checkRevision(c,p.expectedRevision);c.personNames=[p.name.trim(),String(Object.hasOwn(p,'secondName')?p.secondName||'':c.personNames?.[1]||'').trim()].filter(Boolean);c.name=c.personNames.join(' y ');c.namePending=false;revise(c);
  }else if(kind==='code'){
   p.code=String(p.code||'').trim();
