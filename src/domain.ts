@@ -70,6 +70,15 @@ export function operate(s:any,input:any,account='administrador'){
  }else if(kind==='deleteBlock'){
   const b=s.blocks.find((x:any)=>x.id===p.id&&!x.deleted);requireValue(b,'Bloque obligatorio');checkRevision(b,p.expectedRevision);requireValue(!s.events.some((e:any)=>!e.deleted&&e.action!=='Recepción'&&e.lines.some((l:any)=>!l.deleted&&l.blockId===b.id)),'Hay movimientos dependientes; corríjalos primero');b.deleted=true;revise(b);for(const e of s.events.filter((e:any)=>!e.deleted&&e.action==='Recepción'&&e.lines.some((l:any)=>l.blockId===b.id))){for(const l of e.lines.filter((l:any)=>l.blockId===b.id))l.deleted=true;if(e.lines.every((l:any)=>l.deleted))e.deleted=true;revise(e);}
  }else if(kind==='editBlock'){
+  let additionalTypes:any[]=[];
+  if(p.documentTypes!==undefined){
+   requireValue(Array.isArray(p.documentTypes)&&p.documentTypes.length>0,'Selecciona al menos un tipo de documento');
+   requireValue(new Set(p.documentTypes.map((item:any)=>item.typeId)).size===p.documentTypes.length,'No repitas tipos de documento');
+   const original=s.blocks.find((x:any)=>x.id===p.id&&!x.deleted);requireValue(original,'Registro obligatorio');checkRevision(original,p.expectedRevision);
+   for(const item of p.documentTypes){requireValue(s.catalogs.types.some((t:any)=>t.id===item.typeId&&(t.active&&!t.deleted||t.id===original.typeId)),'Tipo inválido');const quantity=item.quantity===''||item.quantity==null?null:Number(item.quantity);requireValue(quantity===null||Number.isSafeInteger(quantity)&&quantity>0,'Cantidad inválida');item.quantity=quantity;}
+   const primary=p.documentTypes.find((item:any)=>item.typeId===original.typeId)||p.documentTypes[0];
+   additionalTypes=p.documentTypes.filter((item:any)=>item!==primary);p.typeId=primary.typeId;p.quantity=primary.quantity;
+  }
   const b=s.blocks.find((x:any)=>x.id===p.id&&!x.deleted);requireValue(b,'Registro obligatorio');checkRevision(b,p.expectedRevision);requireValue(p.description?.trim(),'Descripción obligatoria');b.description=p.description;b.notes=p.notes||'';revise(b);
   if(p.codeId){requireValue(s.codes.some((c:any)=>c.id===p.codeId),'Código inexistente');b.codeId=p.codeId;}
   if(p.typeId){requireValue(s.catalogs.types.some((t:any)=>t.id===p.typeId),'Tipo inexistente');b.typeId=p.typeId;}
@@ -95,6 +104,13 @@ export function operate(s:any,input:any,account='administrador'){
     if(Object.hasOwn(p,'storage'))receiptLine.storage=String(p.storage||'').trim();
     if(p.date)receipt.date=date(p.date);if(responsible)receipt.responsible=responsible.id;revise(receipt);
    }
+  }
+  for(const item of additionalTypes){
+   const type=s.catalogs.types.find((t:any)=>t.id===item.typeId);
+   const extra:any={id:id(),codeId:b.codeId,typeId:item.typeId,description:type.name,date:b.date,notes:b.notes,deleted:false,revision:1,addedWithBlock:b.id,createdAt:new Date().toISOString()};
+   if(b.openingBalance){extra.openingBalance={...b.openingBalance,quantity:item.quantity};extra.initialResponsible=b.initialResponsible||null;extra.sourceImport={...b.sourceImport,addedByAccount:account,addedWithBlock:b.id};}
+   else {const receipt=s.events.find((event:any)=>!event.deleted&&event.action==='Recepción'&&event.lines.some((line:any)=>!line.deleted&&line.blockId===b.id));requireValue(receipt,'No se encontró el ingreso original del bloque');const line=receipt.lines.find((line:any)=>!line.deleted&&line.blockId===b.id);receipt.lines.push({blockId:extra.id,codeId:extra.codeId,to:'Comercial',storage:line.storage||'',quantity:item.quantity});revise(receipt);}
+   s.blocks.push(extra);
   }
  }else if(kind==='eventCorrection'){
   const e=s.events.find((x:any)=>x.id===p.id&&!x.deleted);requireValue(e,'Registro obligatorio');checkRevision(e,p.expectedRevision);revise(e);for(const l of e.lines.filter((l:any)=>!l.deleted)){const b=s.blocks.find((b:any)=>b.id===l.blockId);if(b)revise(b);}
