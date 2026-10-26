@@ -30,12 +30,11 @@ function allowed(req:http.IncomingMessage,input:any){
  if(auth(req))return true;if(session(req)?.role!=='advisor')return false;
  if(['client','editClient','receive','move','editBlock'].includes(input.kind))return true;
  if(input.kind==='eventCorrection')return !Object.hasOwn(input.data||{},'deleted');
- // Advisors may add a previously unknown contract, never reassign an existing one.
+ // Advisors manage customer code links; existing codes require explicit domain confirmation.
  return input.kind==='code';
 }
 async function permitted(req:http.IncomingMessage,input:any){
  if(!allowed(req,input))return false;
- if(!auth(req)&&input.kind==='code')return !(await state()).codes.some((c:any)=>c.code===String(input.data?.code||'').trim());
  return true;
 }
 const deletionAttempts=new Map<string,{count:number,at:number}>();
@@ -101,7 +100,7 @@ export const server=http.createServer(async(req,res)=>{
    }finally{db.release();}return;
   }
   if(url.pathname==='/api/operate'&&req.method==='POST'){
-   if(!pool)throw Error('PostgreSQL no configurado');const input=JSON.parse((await body(req)).toString());if(!await permitted(req,input)){send(403,{error:'Su perfil no permite esta operación'});return;}if(input.kind==='catalogDelete'){confirmDeletion(req,input.data?.deletePassword);delete input.data.deletePassword;}const db=await pool.connect();try{await db.query('BEGIN');const s=(await db.query('SELECT data FROM app_state WHERE id=1 FOR UPDATE')).rows[0].data;if(!auth(req)&&input.kind==='code'&&s.codes.some((c:any)=>c.code===String(input.data?.code||'').trim())){await db.query('ROLLBACK');send(403,{error:'El código ya existe; solo el administrador puede cambiar su vínculo'});return;}const result=operate(s,input,session(req)?.account);await db.query('UPDATE app_state SET data=$1,version=version+1 WHERE id=1',[JSON.stringify(s)]);await db.query('COMMIT');send(200,result);}catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}return;
+   if(!pool)throw Error('PostgreSQL no configurado');const input=JSON.parse((await body(req)).toString());if(!await permitted(req,input)){send(403,{error:'Su perfil no permite esta operación'});return;}if(input.kind==='catalogDelete'){confirmDeletion(req,input.data?.deletePassword);delete input.data.deletePassword;}const db=await pool.connect();try{await db.query('BEGIN');const s=(await db.query('SELECT data FROM app_state WHERE id=1 FOR UPDATE')).rows[0].data;const result=operate(s,input,session(req)?.account);await db.query('UPDATE app_state SET data=$1,version=version+1 WHERE id=1',[JSON.stringify(s)]);await db.query('COMMIT');send(200,result);}catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}return;
   }
   if(url.pathname==='/api/operation-preview'&&req.method==='POST'){
    const input=JSON.parse((await body(req)).toString());if(!await permitted(req,input)){send(403,{error:'Su perfil no permite esta operación'});return;}if(input.kind==='catalogDelete'){confirmDeletion(req,input.data?.deletePassword);delete input.data.deletePassword;}const current=await state();const draft=structuredClone(current);operate(draft,input,session(req)?.account);const affected=draft.blocks.map((b:any)=>({id:b.id,description:b.description,before:current.blocks.some((x:any)=>x.id===b.id&&!x.deleted)?balances(current,b.id):[],after:b.deleted?[]:balances(draft,b.id)})).filter((x:any)=>JSON.stringify(x.before)!==JSON.stringify(x.after));send(200,{ok:true,affected});return;
