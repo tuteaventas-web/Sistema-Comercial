@@ -49,6 +49,11 @@ export function operate(s:any,input:any,account='administrador'){
  if(kind==='client'){
   requireValue(p.name?.trim()&&p.code?.trim(),'Nombre y código obligatorios');requireValue(!s.codes.some((x:any)=>x.code===p.code.trim()),'Código ya registrado');
   const personNames=[p.name.trim(),String(p.secondName||'').trim()].filter(Boolean);const client={id:id(),name:personNames.join(' y '),personNames};s.clients.push(client);s.codes.push({id:id(),clientId:client.id,code:p.code.trim(),current:true});
+ }else if(kind==='deleteClient'){
+  const client=s.clients.find((c:any)=>c.id===p.id);requireValue(client,'Cliente inexistente');checkRevision(client,p.expectedRevision);
+  const ownCodes=s.codes.filter((code:any)=>code.clientId===client.id),codeIds=new Set(ownCodes.map((code:any)=>code.id)),values=new Set(ownCodes.map((code:any)=>code.code));
+  requireValue(!s.blocks.some((block:any)=>codeIds.has(block.codeId))&&!s.events.some((event:any)=>event.lines.some((line:any)=>codeIds.has(line.codeId)))&&!s.legacy.some((row:any)=>values.has(row.mapped?.code)),'Este cliente tiene documentos, movimientos o importaciones asociados. No se elimina para conservar su historial.');
+  s.codes=s.codes.filter((code:any)=>!codeIds.has(code.id));s.clients=s.clients.filter((c:any)=>c.id!==client.id);
  }else if(kind==='editClient'){
   if(p.linkCode!==undefined){
    const value=String(p.linkCode||'').trim();requireValue(value&&p.confirmLink===true,'Indique el código y confirme su vinculación');
