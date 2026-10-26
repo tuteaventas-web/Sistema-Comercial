@@ -22,6 +22,23 @@ export function balances(s:any,blockId:string){
  }
  return result;
 }
+function resolveWholeUnknownTransfers(s:any,blockId:string,account:string,wasUnknown:boolean){
+ const previous:any[]=[];
+ for(const event of s.events.filter((e:any)=>!e.deleted)){
+  let changed=false;
+  for(let index=0;index<event.lines.length;index++){
+   const line=event.lines[index];if(line.deleted||line.blockId!==blockId||event.action==='Recepción')continue;
+   const inferred=line.quantityCorrection?.fromUnknown&&line.quantity===line.quantityCorrection.resolvedQuantity;
+   if(!(wasUnknown&&line.quantity===null)&&!inferred)continue;
+   const prefix=event.lines.slice(0,index);const events=prefix.length?[...previous,{...event,lines:prefix}]:previous;
+   const source=balances({...s,events},blockId).find((balance:any)=>balance.place===line.from&&balance.storage===(line.fromStorage||''));
+   if(source&&Number.isSafeInteger(source.quantity)&&source.quantity>0){
+    if(line.quantity!==source.quantity){line.quantity=source.quantity;line.quantityCorrection={fromUnknown:true,originalQuantity:null,resolvedQuantity:source.quantity,account,at:new Date().toISOString()};changed=true;}
+   }
+  }
+  if(changed)revise(event);previous.push(event);
+ }
+}
 export function operate(s:any,input:any,account='administrador'){
  input=structuredClone(input);
  requireValue(input.key&&typeof input.key==='string','Falta clave de operación');
@@ -83,6 +100,7 @@ export function operate(s:any,input:any,account='administrador'){
   if(p.codeId){requireValue(s.codes.some((c:any)=>c.id===p.codeId),'Código inexistente');b.codeId=p.codeId;}
   if(p.typeId){requireValue(s.catalogs.types.some((t:any)=>t.id===p.typeId),'Tipo inexistente');b.typeId=p.typeId;}
   if(p.date)b.date=date(p.date);
+  const previousQuantity=b.openingBalance?b.openingBalance.quantity:s.events.find((event:any)=>!event.deleted&&event.action==='Recepción'&&event.lines.some((line:any)=>!line.deleted&&line.blockId===b.id))?.lines.find((line:any)=>!line.deleted&&line.blockId===b.id)?.quantity;
   const changesInitial=['quantity','storage','responsible'].some(key=>Object.hasOwn(p,key));
   if(changesInitial){
    const quantity=Object.hasOwn(p,'quantity')?(p.quantity===''||p.quantity==null?null:Number(p.quantity)):undefined;
@@ -105,6 +123,7 @@ export function operate(s:any,input:any,account='administrador'){
     if(p.date)receipt.date=date(p.date);if(responsible)receipt.responsible=responsible.id;revise(receipt);
    }
   }
+  if(Object.hasOwn(p,'quantity')&&p.quantity!==null&&p.quantity!=='')resolveWholeUnknownTransfers(s,b.id,account,previousQuantity===null);
   for(const item of additionalTypes){
    const type=s.catalogs.types.find((t:any)=>t.id===item.typeId);
    const extra:any={id:id(),codeId:b.codeId,typeId:item.typeId,description:type.name,date:b.date,notes:b.notes,deleted:false,revision:1,addedWithBlock:b.id,createdAt:new Date().toISOString()};
