@@ -1,3 +1,4 @@
+import {verifyDeletionCredential} from './deletion-auth.ts';
 import {validateAccessPin} from './access-pin.ts';
 import http from 'node:http';
 import {editHistory} from './edit-history.ts';
@@ -28,13 +29,14 @@ function session(req:http.IncomingMessage){const value=loaded.get(req);return va
 function auth(req:http.IncomingMessage){return session(req)?.role==='admin';}
 function allowed(req:http.IncomingMessage,input:any){
  if(auth(req))return true;if(session(req)?.role!=='advisor')return false;
- if(['client','editClient','receive','move','editBlock'].includes(input.kind))return true;
- if(input.kind==='eventCorrection')return !Object.hasOwn(input.data||{},'deleted');
+ if(['client','editClient','receive','move','editBlock','deleteBlock','deleteBlocks'].includes(input.kind))return true;
+ if(input.kind==='eventCorrection')return !Object.hasOwn(input.data||{},'deleted')||input.data.deleted===true;
  // Advisors manage customer code links; existing codes require explicit domain confirmation.
  return input.kind==='code';
 }
 async function permitted(req:http.IncomingMessage,input:any){
  if(!allowed(req,input))return false;
+ if(session(req)?.role==='advisor'&&(['deleteBlock','deleteBlocks'].includes(input.kind)||(input.kind==='eventCorrection'&&input.data?.deleted===true))){const current=session(req)!;const identity='advisor-delete:'+current.username;let attempt=deletionAttempts.get(identity);if(!attempt||Date.now()-attempt.at>900000){attempt={count:0,at:Date.now()};deletionAttempts.set(identity,attempt);}if(attempt.count>=10)throw Error('Demasiados intentos. Espere 15 minutos.');const row=(await pool?.query('SELECT password_hash,active,revision FROM advisor_accounts WHERE username=$1',[current.username]))?.rows[0];try{verifyDeletionCredential(row,current.revision,input.data?.deletePassword);}catch(error){attempt.count++;throw error;}attempt.count=0;delete input.data.deletePassword;}
  return true;
 }
 const deletionAttempts=new Map<string,{count:number,at:number}>();
