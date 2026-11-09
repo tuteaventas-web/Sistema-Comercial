@@ -591,3 +591,15 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; font-fami
 .summary-stage-entry>.summary-activity-responsible{display:flex;align-items:center;gap:4px;line-height:1.35;overflow-wrap:anywhere}.summary-activity-responsible>.icon{width:12px;height:12px;flex:none}
 
 .summary-flow-table .summary-stage-entry{position:relative;min-height:48px;padding-top:7px;padding-bottom:7px}.summary-stage-entry>.summary-activity-responsible{position:absolute;top:7px;right:25px;margin:0;max-width:44%;font-size:11px}.summary-stage-entry>.summary-stage-description{padding-right:42%;min-height:20px}.summary-flow-table tbody th{vertical-align:top;padding-top:12px}.summary-flow-table .summary-latest-star{top:5px;right:5px}
+
+.transfer-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  max-block-size: min(var(--transfer-preview-height, 55vh), 55vh);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.transfer-list[hidden] { display: none; }
+.transfer-blocks .transfer-list .transfer-item { margin: 0; }
+.transfer-list + #transfer-more { margin-top: 8px; }
