@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#154DB2">
   <meta name="description" content="Consulta y gestión de documentos físicos de clientes, ubicaciones e historial de movimientos.">
-  <title>Archivos de clientes · Área comercial</title>
+  <title>Sistema Comercial</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <a class="skip-link" href="#main-content">Ir al contenido</a>
   <svg class="svg-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Z"/><path d="M3 9h18"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
     <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
     <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Z"/><path d="M14 3v5h5M9 12h6M9 16h6"/></symbol>
@@ -33,13 +34,14 @@
     <symbol id="i-grip" viewBox="0 0 24 24"><path d="M6 7h12M6 12h12M6 17h12"/></symbol>
   </svg>
   <aside class="sidebar">
-    <a class="brand" href="/" aria-label="Archivo · Inicio">
+    <a class="brand" href="/" aria-label="Sistema Comercial · Inicio">
       <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg></span>
-      <span class="brand-name">Archivo<small>Área comercial</small></span>
+      <span class="brand-name">Comercial<small>Espacios de trabajo</small></span>
     </a>
     <p class="nav-caption">ESPACIO DE TRABAJO</p>
     <nav aria-label="Navegación principal">
-      <button data-view="history" aria-current="page" aria-controls="screen"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span>Movimientos</span></button>
+      <button data-view="portal" aria-controls="screen"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span>Inicio</span></button>
+      <button data-view="history" aria-current="page" aria-controls="screen"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span>Archivos de clientes</span></button>
       <button data-view="admin" aria-controls="screen"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span>Administración</span></button>
     </nav>
     <div class="aside-note"><strong><span class="status-dot" aria-hidden="true"></span>Control documental</strong><p>Documentos físicos.<br>Su recorrido, en un solo lugar.</p></div>
@@ -47,9 +49,9 @@
   <main id="main-content" tabindex="-1">
     <header class="app-header">
       <div>
-        <div class="breadcrumbs"><span>Área comercial</span><span aria-hidden="true">/</span><span id="view-label">Movimientos</span></div>
-        <h1 id="view-title">Movimientos</h1>
-        <p id="view-description" class="page-description">Busca documentos, consulta su ubicación y revisa su historial.</p>
+        <div class="breadcrumbs"><span>Área comercial</span><span aria-hidden="true">/</span><span id="view-label">Inicio</span></div>
+        <h1 id="view-title">Sistema Comercial</h1>
+        <p id="view-description" class="page-description">Tus espacios de trabajo, en un solo lugar.</p>
       </div>
       <div class="header-actions"><span id="access-badge" class="access-badge">Solo consulta</span><button id="session" class="ghost">Acceso administrativo</button></div>
     </header>
