@@ -1,3 +1,4 @@
+import {handleGoals} from './goals.ts';
 import {verifyDeletionCredential} from './deletion-auth.ts';
 import {validateAccessPin} from './access-pin.ts';
 import http from 'node:http';
@@ -71,6 +72,7 @@ export const server=http.createServer(async(req,res)=>{
    if(url.pathname.endsWith('/delete')){confirmDeletion(req,p.deletePassword);const result=await pool.query('DELETE FROM advisor_accounts WHERE username=$1 RETURNING username',[username]);if(!result.rowCount)throw Error('Cuenta inexistente');send(200,{ok:true});}
    else {const row=(await pool.query('SELECT credential_cipher FROM advisor_accounts WHERE username=$1',[username])).rows[0];if(!row)throw Error('Cuenta inexistente');send(200,{password:row.credential_cipher?decryptCredential(row.credential_cipher):null});}return;
   }
+  if(url.pathname==='/api/goals'){await handleGoals(req,url,pool,session(req),()=>body(req),send);return;}
   if(url.pathname==='/api/advisors'){
    if(!auth(req)){send(403,{error:'Solo el administrador puede gestionar cuentas'});return;}
    if(!pool)throw Error('PostgreSQL no configurado');
@@ -121,7 +123,7 @@ export const server=http.createServer(async(req,res)=>{
    res.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':`attachment; filename="registros-${q.get('mode')||'actual'}-${q.get('start')||'inicio'}-${q.get('end')||'fin'}-${q.get('order')||'desc'}.xlsx"`});res.end(Buffer.from(await book.xlsx.writeBuffer()));return;
   }
   if(url.pathname==='/plantilla-carga.xlsx'&&req.method==='GET'){if(!auth(req)){send(403,{error:'Acceso administrativo requerido'});return;}res.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="plantilla-carga.xlsx"','Cache-Control':'no-store'});res.end(await bulkTemplate((await state()).catalogs));return;}
-  if(req.method==='GET'&&!url.pathname.startsWith('/api/')){const file=url.pathname==='/'?'index.html':url.pathname.slice(1);if(!['index.html','app.js','query.js','audit.js','style.css'].includes(file)){send(404,{error:'No encontrado'});return;}res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html; charset=utf-8'});res.end(readFileSync(new URL(file,root)));return;}
+  if(req.method==='GET'&&!url.pathname.startsWith('/api/')){const file=url.pathname==='/'?'index.html':url.pathname.slice(1);if(!['index.html','app.js','query.js','audit.js','style.css','goals.js','goal-metrics.js','goals.css'].includes(file)){send(404,{error:'No encontrado'});return;}res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html; charset=utf-8'});res.end(readFileSync(new URL(file,root)));return;}
   send(404,{error:'No encontrado'});
  }catch(e){const code=(e as any)?.code==='STALE_REVISION'?'STALE_REVISION':undefined;send(code?409:400,{error:e instanceof Error?e.message:'Error inesperado',code});}
 });

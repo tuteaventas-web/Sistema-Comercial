@@ -14,4 +14,9 @@ CREATE TABLE IF NOT EXISTS app_sessions(token_hash text PRIMARY KEY, role text N
 ALTER TABLE app_sessions ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON app_sessions FROM PUBLIC;
 INSERT INTO schema_migrations(version) VALUES (4) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS commercial_goals(id integer PRIMARY KEY CHECK(id=1), data jsonb NOT NULL);
+ALTER TABLE commercial_goals ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON commercial_goals FROM PUBLIC;
+INSERT INTO commercial_goals(id,data) VALUES(1,'{"records":[],"targets":{},"requests":{},"audit":[]}') ON CONFLICT DO NOTHING;
+INSERT INTO schema_migrations(version) VALUES (5) ON CONFLICT DO NOTHING;
 COMMIT;
