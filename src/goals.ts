@@ -11,8 +11,12 @@ export function prepareGoalRecord(input:any, codes:any[], advisors:Advisor[], vi
   if(previous&&input.revision!==previous.revision)throw Error('El registro cambió. Actualiza la consulta antes de editar.');
   const date=String(input.date||'');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date)throw Error('Fecha inválida');
-  const code=codes.find(item=>item.id===input.codeId);
-  if(!code)throw Error('Selecciona un código de cliente existente');
+  const selectedCode=codes.find(item=>item.id===input.codeId);
+  const code=input.code===undefined
+    ? selectedCode?.code||(previous?.codeId===input.codeId?previous?.code:'')
+    : typeof input.code==='string'?input.code.trim():'';
+  if(!code||code.length>200||/[\u0000-\u001f\u007f]/.test(code))throw Error('Escribe un código de cliente de hasta 200 caracteres');
+  const codeId=codes.find(item=>item.code===code)?.id||null;
   const service=SERVICES.find(item=>item.id===input.service);
   if(!service)throw Error('Selecciona un tipo de servicio');
   if(!['Prospecto','Cliente'].includes(input.contractType))throw Error('Selecciona el tipo de contrato');
@@ -31,7 +35,7 @@ export function prepareGoalRecord(input:any, codes:any[], advisors:Advisor[], vi
   if(notes.length>2000)throw Error('La observación admite hasta 2000 caracteres');
   return {
     id:previous?.id||randomUUID(), revision:(previous?.revision||0)+1,
-    date,codeId:code.id,code:code.code,service:service.id,contractType:input.contractType,
+    date,codeId,code,service:service.id,contractType:input.contractType,
     activities,rates:{...service.rates,closing:activities.closing?.username===MICHELIN_CLOSER.username?0:service.rates.closing},notes,
     createdBy:previous?.createdBy||(viewer.role==='admin'?'administrador':viewer.username),
     createdAt:previous?.createdAt||new Date().toISOString(),

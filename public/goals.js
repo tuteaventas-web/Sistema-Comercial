@@ -19,9 +19,6 @@ export async function renderGoals(context){
 
   function recordForm(previous){
     const values=previous||{};
-    const codes=context.codes.map(code=>({id:code.id,label:code.code+' · '+(context.clients.find(person=>person.id===code.clientId)?.name||'')}));
-    // Include the stored code if its customer has since been removed from the file catalog.
-    if(previous&&!codes.some(code=>code.id===previous.codeId))codes.push({id:previous.codeId,label:previous.code});
     const advisorOptions=activity=>{
       const existing=values.activities?.[activity.id];
       const people=data.accounts.filter(person=>person.active||person.username===existing?.username);
@@ -29,18 +26,15 @@ export async function renderGoals(context){
       if(existing&&!people.some(person=>person.username===existing.username))people.push({...existing,active:false});
       return '<option value="">Sin asignar</option>'+people.map(person=>'<option value="'+esc(person.username)+'" '+(existing?.username===person.username?'selected':'')+'>'+esc(person.name)+(person.active?'':' · Inactiva')+'</option>').join('');
     };
-    const codeLabel=codes.find(code=>code.id===values.codeId)?.label||'';
+    const codeValue=values.code||context.codes.find(code=>code.id===values.codeId)?.code||'';
     const date=values.date||selectedMonth+'-'+(selectedMonth===new Intl.DateTimeFormat('en-CA',{timeZone:'America/Lima',year:'numeric',month:'2-digit'}).format(new Date()).slice(0,7)?new Intl.DateTimeFormat('en-CA',{timeZone:'America/Lima',day:'2-digit'}).format(new Date()):'01');
     form(previous?'Editar comisión':'Registrar comisión',
       field('Fecha','date','date',date)+
-      '<label>Cliente por nombre o código *<input name="customer" list="goal-customer-options" autocomplete="off" required value="'+esc(codeLabel)+'" placeholder="Escribe y selecciona un cliente"><datalist id="goal-customer-options">'+codes.map(code=>'<option value="'+esc(code.label)+'"></option>').join('')+'</datalist></label>'+
+      field('Código del cliente','code','text',codeValue)+
       '<div class="goals-form-grid"><label>Tipo de servicio *<select name="service" required><option value="">Seleccione</option>'+SERVICES.filter(service=>!service.legacy||values.service===service.id).map(service=>'<option value="'+service.id+'" '+(values.service===service.id?'selected':'')+'>'+service.name+'</option>').join('')+'</select></label><label>Tipo de contrato *<select name="contractType" required>'+['Prospecto','Cliente'].map(type=>'<option '+(values.contractType===type?'selected':'')+'>'+type+'</option>').join('')+'</select></label></div>'+
       '<fieldset class="goals-activities"><legend>Responsable de cada actividad</legend>'+ACTIVITIES.map(activity=>'<label>'+activity.name+'<select name="'+activity.id+'">'+advisorOptions(activity)+'</select></label>').join('')+'</fieldset><p class="hint">Solo Cierre de venta suma al avance de la meta compartida. Firma y Registro generan su comisión correspondiente.</p><div id="goals-calculation" class="goals-calculation" aria-live="polite"></div>'+
       field('Observaciones','notes','text',values.notes||'',false),async(values,key)=>{
-        const code=codes.find(code=>code.label===values.get('customer'));
-        if(!code)throw Error('Selecciona un cliente de los resultados por nombre o código');
-        const input={...Object.fromEntries(values),codeId:code.id};
-        delete input.customer;
+        const input=Object.fromEntries(values);
         if(previous){input.id=previous.id;input.revision=previous.revision;}
         await api('goals',{kind:'record',key,data:input});
         selectedMonth=String(input.date).slice(0,7);
