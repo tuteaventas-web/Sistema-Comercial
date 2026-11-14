@@ -17,6 +17,11 @@
 .goals-kpis article { display: grid; gap: 6px; }
 .goals-kpis span { color: var(--muted); font-size: 12px; }
 .goals-kpis strong { font-size: 25px; }
+.goals-kpis .goals-advisor-commissions { align-content: start; grid-template-columns: 1fr; }
+.goals-advisor-commissions dl { margin: 2px 0 0; display: grid; gap: 7px; }
+.goals-advisor-commissions dl>div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.goals-advisor-commissions dt { font-size: 13px; overflow-wrap: anywhere; }
+.goals-advisor-commissions dd { margin: 0; font-size: 18px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .goals-table-scroll { overflow-x: auto; max-width: 100%; }
 .goals-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
 .goals-table th, .goals-table td { padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: top; min-width: 90px; }
