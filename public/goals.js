@@ -1,4 +1,4 @@
-import {SERVICES,ACTIVITIES,monthlyMetrics} from './goal-metrics.js';
+import {SERVICES,ACTIVITIES,monthlyMetrics,MICHELIN_CLOSER} from './goal-metrics.js';
 
 let selectedMonth=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Lima',year:'numeric',month:'2-digit'}).format(new Date()).slice(0,7);
 const money=value=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN'}).format(value/100);
@@ -25,6 +25,7 @@ export async function renderGoals(context){
     const advisorOptions=activity=>{
       const existing=values.activities?.[activity.id];
       const people=data.accounts.filter(person=>person.active||person.username===existing?.username);
+      if(activity.id==='closing')people.push({...MICHELIN_CLOSER,active:true});
       if(existing&&!people.some(person=>person.username===existing.username))people.push({...existing,active:false});
       return '<option value="">Sin asignar</option>'+people.map(person=>'<option value="'+esc(person.username)+'" '+(existing?.username===person.username?'selected':'')+'>'+esc(person.name)+(person.active?'':' · Inactiva')+'</option>').join('');
     };
@@ -33,7 +34,7 @@ export async function renderGoals(context){
     form(previous?'Editar comisión':'Registrar comisión',
       field('Fecha','date','date',date)+
       '<label>Cliente por nombre o código *<input name="customer" list="goal-customer-options" autocomplete="off" required value="'+esc(codeLabel)+'" placeholder="Escribe y selecciona un cliente"><datalist id="goal-customer-options">'+codes.map(code=>'<option value="'+esc(code.label)+'"></option>').join('')+'</datalist></label>'+
-      '<div class="goals-form-grid"><label>Tipo de servicio *<select name="service" required><option value="">Seleccione</option>'+SERVICES.map(service=>'<option value="'+service.id+'" '+(values.service===service.id?'selected':'')+'>'+service.name+'</option>').join('')+'</select></label><label>Tipo de contrato *<select name="contractType" required>'+['Prospecto','Cliente'].map(type=>'<option '+(values.contractType===type?'selected':'')+'>'+type+'</option>').join('')+'</select></label></div>'+
+      '<div class="goals-form-grid"><label>Tipo de servicio *<select name="service" required><option value="">Seleccione</option>'+SERVICES.filter(service=>!service.legacy||values.service===service.id).map(service=>'<option value="'+service.id+'" '+(values.service===service.id?'selected':'')+'>'+service.name+'</option>').join('')+'</select></label><label>Tipo de contrato *<select name="contractType" required>'+['Prospecto','Cliente'].map(type=>'<option '+(values.contractType===type?'selected':'')+'>'+type+'</option>').join('')+'</select></label></div>'+
       '<fieldset class="goals-activities"><legend>Responsable de cada actividad</legend>'+ACTIVITIES.map(activity=>'<label>'+activity.name+'<select name="'+activity.id+'">'+advisorOptions(activity)+'</select></label>').join('')+'</fieldset><p class="hint">Solo Cierre de venta suma al avance de la meta compartida. Firma y Registro generan su comisión correspondiente.</p><div id="goals-calculation" class="goals-calculation" aria-live="polite"></div>'+
       field('Observaciones','notes','text',values.notes||'',false),async(values,key)=>{
         const code=codes.find(code=>code.label===values.get('customer'));
@@ -48,7 +49,11 @@ export async function renderGoals(context){
     const editor=document.querySelector('#form');
     const calculate=()=>{
       const service=SERVICES.find(item=>item.id===editor.querySelector('[name=service]').value);
-      const total=service?ACTIVITIES.reduce((sum,activity)=>sum+(editor.querySelector('[name='+activity.id+']').value?service.rates[activity.id]:0),0):0;
+      const total=service?ACTIVITIES.reduce((sum,activity)=>{
+        const responsible=editor.querySelector('[name='+activity.id+']').value;
+        const freeClosing=activity.id==='closing'&&responsible===MICHELIN_CLOSER.username;
+        return sum+(responsible&&!freeClosing?service.rates[activity.id]:0);
+      },0):0;
       editor.querySelector('#goals-calculation').textContent='Comisión del registro · '+money(total);
     };
     editor.querySelectorAll('select').forEach(select=>select.addEventListener('change',calculate));
@@ -71,7 +76,7 @@ export async function renderGoals(context){
       <section class="panel"><h2>Resumen mensual por asesora</h2><div class="goals-table-scroll" tabindex="0" role="region" aria-label="Comisiones por asesora"><table class="goals-table"><thead><tr><th>Asesora</th><th>Cierre</th><th>Firma</th><th>Registro</th><th>Total del mes</th><th>Ventas cerradas</th></tr></thead><tbody>${summary.people.map(person=>`<tr><th scope="row">${esc(person.name)}</th><td>${money(person.closing)}</td><td>${money(person.signature)}</td><td>${money(person.registration)}</td><td><strong>${money(person.total)}</strong></td><td>${person.sales}</td></tr>`).join('')}<tr class="goals-total"><th scope="row">Total del equipo</th>${ACTIVITIES.map(activity=>'<td>'+money(summary.people.reduce((sum,person)=>sum+person[activity.id],0))+'</td>').join('')}<td>${money(summary.total)}</td><td>${summary.sales}</td></tr></tbody></table></div></section>
       <section class="panel"><h2>Registro de comisiones</h2><p class="hint">${records.length} registros en ${esc(monthName(selectedMonth))}.</p><div class="goals-table-scroll" tabindex="0" role="region" aria-label="Registro mensual de comisiones"><table class="goals-table"><thead><tr><th>Fecha</th><th>Cliente / código</th><th>Servicio</th><th>Contrato</th>${ACTIVITIES.map(activity=>'<th>'+activity.name+'</th>').join('')}<th>Comisión</th><th>Observaciones</th><th><span class="sr-only">Acciones</span></th></tr></thead><tbody>${records.length?records.map(record=>`<tr><td>${esc(record.date.split('-').reverse().join('/'))}</td><th scope="row">${esc(record.code)}</th><td>${esc(SERVICES.find(service=>service.id===record.service)?.name)}</td><td>${esc(record.contractType)}</td>${ACTIVITIES.map(activity=>'<td>'+esc(record.activities[activity.id]?.name||'—')+'</td>').join('')}<td>${money(ACTIVITIES.reduce((sum,activity)=>sum+(record.activities[activity.id]?record.rates[activity.id]:0),0))}</td><td class="goals-notes">${esc(record.notes||'—')}</td><td>${admin||record.createdBy===username?'<button type="button" data-goals-edit="'+esc(record.id)+'" aria-label="Editar comisión de '+esc(record.code)+'">Editar</button>':''}</td></tr>`).join(''):'<tr><td colspan="10" class="goals-empty">Aún no hay registros en este mes.</td></tr>'}</tbody></table></div></section>
       <section class="panel"><h2>Estadísticas mensuales · ${year}</h2><p class="hint">Ventas cerradas, cumplimiento y comisiones de los doce meses.</p><div class="goals-month-chart">${months.map(item=>`<button type="button" data-goals-month="${item.month}" class="goals-month-bar ${item.month===selectedMonth?'is-selected':''}" aria-label="${esc(monthName(item.month))}, ${item.sales} de ${item.target} ventas, ${item.percentage}%"><span>${esc(monthName(item.month).split(' ')[0])}</span><span class="goals-chart-track"><span style="width:${Math.min(item.percentage,100)}%"></span></span><strong>${item.sales}/${item.target}</strong><small>${money(item.total)}</small></button>`).join('')}</div></section>
-      <details class="panel goals-rates"><summary>Tabla de tarifas de comisión</summary><div class="goals-table-scroll"><table class="goals-table"><thead><tr><th>Actividad</th>${SERVICES.map(service=>'<th>'+service.name+'</th>').join('')}</tr></thead><tbody>${ACTIVITIES.map(activity=>'<tr><th>'+activity.name+'</th>'+SERVICES.map(service=>'<td>'+money(service.rates[activity.id])+'</td>').join('')+'</tr>').join('')}<tr class="goals-total"><th>Total</th>${SERVICES.map(service=>'<td>'+money(Object.values(service.rates).reduce((sum,value)=>sum+value,0))+'</td>').join('')}</tr></tbody></table></div></details>`;
+      <details class="panel goals-rates"><summary>Tabla de tarifas de comisión</summary><div class="goals-table-scroll"><table class="goals-table"><thead><tr><th>Actividad</th>${SERVICES.filter(service=>!service.legacy).map(service=>'<th>'+service.name+'</th>').join('')}</tr></thead><tbody>${ACTIVITIES.map(activity=>'<tr><th>'+activity.name+'</th>'+SERVICES.filter(service=>!service.legacy).map(service=>'<td>'+money(service.rates[activity.id])+'</td>').join('')+'</tr>').join('')}<tr class="goals-total"><th>Total</th>${SERVICES.filter(service=>!service.legacy).map(service=>'<td>'+money(Object.values(service.rates).reduce((sum,value)=>sum+value,0))+'</td>').join('')}</tr></tbody></table></div></details>`;
     find('#goals-month').onchange=event=>{if(event.target.validity.valid&&event.target.value){selectedMonth=event.target.value;refresh();}};
     find('#goals-refresh').onclick=refresh;
     find('#goals-new').onclick=()=>recordForm();

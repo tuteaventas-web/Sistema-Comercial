@@ -1,6 +1,9 @@
+export const MICHELIN_CLOSER = {username:'external:michelin',name:'Michelin'};
 export const SERVICES = [
   {id:'tesis-completa', name:'Tesis completa', rates:{closing:1500, signature:500, registration:1000}},
-  {id:'plan-informe', name:'Plan / Informe final', rates:{closing:700, signature:300, registration:500}},
+  {id:'plan-tesis', name:'Plan de tesis', rates:{closing:700, signature:300, registration:500}},
+  {id:'informe-final', name:'Informe final', rates:{closing:700, signature:300, registration:500}},
+  {id:'plan-informe', name:'Plan / Informe final (registro anterior)', legacy:true, rates:{closing:700, signature:300, registration:500}},
   {id:'tesis-michelin', name:'Tesis Michelin', rates:{closing:0, signature:300, registration:700}}
 ];
 export const ACTIVITIES = [

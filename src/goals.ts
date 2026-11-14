@@ -1,7 +1,7 @@
 import type http from 'node:http';
 import type {Pool} from 'pg';
 import {createHash,randomUUID} from 'node:crypto';
-import {SERVICES,ACTIVITIES} from '../public/goal-metrics.js';
+import {SERVICES,ACTIVITIES,MICHELIN_CLOSER} from '../public/goal-metrics.js';
 
 type Viewer={role:string,account:string,username?:string};
 type Advisor={username:string,name:string,active:boolean};
@@ -20,6 +20,7 @@ export function prepareGoalRecord(input:any, codes:any[], advisors:Advisor[], vi
   for(const activity of ACTIVITIES){
     const username=String(input[activity.id]||'');
     if(!username){activities[activity.id]=null;continue;}
+    if(activity.id==='closing'&&username===MICHELIN_CLOSER.username){activities.closing={...MICHELIN_CLOSER};continue;}
     const person=advisors.find(item=>item.username===username&&item.active);
     const original=previous?.activities[activity.id];
     if(!person&&original?.username!==username)throw Error('Selecciona una asesora activa para '+activity.name.toLowerCase());
@@ -31,7 +32,7 @@ export function prepareGoalRecord(input:any, codes:any[], advisors:Advisor[], vi
   return {
     id:previous?.id||randomUUID(), revision:(previous?.revision||0)+1,
     date,codeId:code.id,code:code.code,service:service.id,contractType:input.contractType,
-    activities,rates:{...service.rates},notes,
+    activities,rates:{...service.rates,closing:activities.closing?.username===MICHELIN_CLOSER.username?0:service.rates.closing},notes,
     createdBy:previous?.createdBy||(viewer.role==='admin'?'administrador':viewer.username),
     createdAt:previous?.createdAt||new Date().toISOString(),
     updatedBy:viewer.account,updatedAt:new Date().toISOString()
