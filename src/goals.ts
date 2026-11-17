@@ -58,15 +58,7 @@ export async function handleGoals(
       pool.query('SELECT username,name,active FROM advisor_accounts ORDER BY name')
     ]);
     const data=result.rows[0].data;
-    const yearRecords=data.records.filter((item:any)=>item.date.startsWith(year+'-'));
-    const teamSales:Record<string,number>={};
-    for(const record of yearRecords){
-      if(record.activities.closing){const key=record.date.slice(0,7);teamSales[key]=(teamSales[key]||0)+1;}
-    }
-    const records=viewer.role==='admin'?yearRecords:yearRecords
-      .filter((record:any)=>record.createdBy===viewer.username||ACTIVITIES.some(activity=>record.activities[activity.id]?.username===viewer.username))
-      .map((record:any)=>({...record,rates:Object.fromEntries(ACTIVITIES.map(activity=>[activity.id,record.activities[activity.id]?.username===viewer.username?record.rates[activity.id]:0]))}));
-    send(200,{records,teamSales,username:viewer.username,targets:data.targets,accounts:accounts.rows});
+    send(200,{records:data.records.filter((item:any)=>item.date.startsWith(year+'-')),targets:data.targets,accounts:accounts.rows});
     return;
   }
   if(req.method!=='POST'){send(405,{error:'Método no permitido'});return;}
