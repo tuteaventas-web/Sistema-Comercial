@@ -7,7 +7,6 @@ type Viewer={role:string,account:string,username?:string};
 type Advisor={username:string,name:string,active:boolean};
 
 export function prepareGoalRecord(input:any, codes:any[], advisors:Advisor[], viewer:Viewer, previous?:any){
-  if(previous&&viewer.role!=='admin'&&previous.createdBy!==viewer.username)throw Error('Solo puedes editar tus propios registros');
   if(previous&&input.revision!==previous.revision)throw Error('El registro cambió. Actualiza la consulta antes de editar.');
   const date=String(input.date||'');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date)throw Error('Fecha inválida');
@@ -37,6 +36,7 @@ export function prepareGoalRecord(input:any, codes:any[], advisors:Advisor[], vi
     id:previous?.id||randomUUID(), revision:(previous?.revision||0)+1,
     date,codeId,code,service:service.id,contractType:input.contractType,
     activities,rates:{...service.rates,closing:activities.closing?.username===MICHELIN_CLOSER.username?0:service.rates.closing},notes,
+    commissionDenial:previous?.commissionDenial||null,
     createdBy:previous?.createdBy||(viewer.role==='admin'?'administrador':viewer.username),
     createdAt:previous?.createdAt||new Date().toISOString(),
     updatedBy:viewer.account,updatedAt:new Date().toISOString()
@@ -63,9 +63,10 @@ export async function handleGoals(
   }
   if(req.method!=='POST'){send(405,{error:'Método no permitido'});return;}
   const input=JSON.parse((await readBody()).toString());
-  if(!['record','target'].includes(input.kind))throw Error('Operación inválida');
+  if(!['record','target','commissionStatus'].includes(input.kind))throw Error('Operación inválida');
   if(typeof input.key!=='string'||input.key.length<8||input.key.length>100)throw Error('Identificador de operación inválido');
   if(input.kind==='target'&&viewer.role!=='admin'){send(403,{error:'Solo el administrador puede modificar la meta'});return;}
+  if(input.kind==='commissionStatus'&&viewer.role!=='admin'){send(403,{error:'Solo el administrador puede negar o restablecer una comisión'});return;}
   const digest=createHash('sha256').update(JSON.stringify({kind:input.kind,data:input.data,actor:viewer.account})).digest('hex');
   const db=await pool.connect();
   try{
@@ -83,6 +84,17 @@ export async function handleGoals(
       if(payload.previous!==before)throw Error('La meta cambió. Actualiza la consulta.');
       data.targets[payload.month]=payload.quantity;
       after=payload.quantity;
+    }else if(input.kind==='commissionStatus'){
+      const previous=data.records.find((item:any)=>item.id===payload.id);
+      if(!previous)throw Error('Registro inexistente');
+      if(payload.revision!==previous.revision)throw Error('El registro cambió. Actualiza la consulta.');
+      if(typeof payload.denied!=='boolean')throw Error('Estado de comisión inválido');
+      const reason=String(payload.reason||'').trim();
+      if((payload.denied&&!reason)||reason.length>2000)throw Error('Indica el motivo de la comisión denegada (máximo 2000 caracteres)');
+      const at=new Date().toISOString();
+      before=previous;
+      after={...previous,revision:previous.revision+1,commissionDenial:payload.denied?{reason,account:viewer.account,at}:null,updatedBy:viewer.account,updatedAt:at};
+      data.records[data.records.indexOf(previous)]=after;
     }else{
       const previous=payload.id?data.records.find((item:any)=>item.id===payload.id):undefined;
       if(payload.id&&!previous)throw Error('Registro inexistente');

@@ -11,6 +11,13 @@ export const ACTIVITIES = [
   {id:'signature', name:'Firma'},
   {id:'registration', name:'Registro'}
 ];
+export function activityCommission(record,activity){
+  if(record.commissionDenial||!record.activities[activity])return 0;
+  return record.rates[activity];
+}
+export function recordCommission(record){
+  return ACTIVITIES.reduce((total,activity)=>total+activityCommission(record,activity.id),0);
+}
 export function monthlyMetrics(records, month, target=8, accounts=[]){
   const people=new Map(accounts.map(person=>[person.username,{username:person.username,name:person.name,sales:0,closing:0,signature:0,registration:0,total:0}]));
   let sales=0,total=0;
@@ -21,7 +28,7 @@ export function monthlyMetrics(records, month, target=8, accounts=[]){
       if(!person)continue;
       if(!people.has(person.username))people.set(person.username,{username:person.username,name:person.name,sales:0,closing:0,signature:0,registration:0,total:0});
       const summary=people.get(person.username);
-      const amount=record.rates[activity.id];
+      const amount=activityCommission(record,activity.id);
       summary[activity.id]+=amount;
       summary.total+=amount;
       total+=amount;

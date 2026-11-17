@@ -44,7 +44,24 @@
 .goals-activities legend { padding: 0 5px; font-weight: 600; }
 .goals-activities label { margin: 0; }
 .goals-calculation { padding: 12px 14px; margin: 8px 0 16px; background: #edf8f2; border-radius: 8px; font-weight: 650; color: #106947; }
+.goals-overview { display: grid; grid-template-columns: minmax(0,2.3fr) minmax(230px,1fr); gap: 24px; align-items: center; }
+.goals-overview .goals-advisor-commissions { border-left: 1px solid var(--line); padding-left: 24px; }
+.goals-overview .goals-advisor-commissions h2 { font-size: 12px; font-weight: 500; color: var(--muted); margin: 0 0 14px; }
+.goals-overview .goals-advisor-commissions dl { gap: 10px; }
+.goals-month-chart.is-advisor .goals-month-bar { grid-template-columns: 95px minmax(60px,1fr) 65px; }
+.goals-record-actions { display: flex; gap: 7px; }
+.goals-record-actions button { padding: 7px; min-width: 35px; min-height: 35px; }
+.goals-record-actions .icon { width: 18px; height: 18px; }
+.goals-record-amount { white-space: nowrap; }
+.goals-record-amount>small { display: block; color: #a23d48; font-size: 10px; }
+.goals-denial-note { border-left: 3px solid #dc8790; background: #fff6f7; border-radius: 5px; color: #913543; padding: 8px 10px; margin: 6px 0; }
+.goals-denial-note strong { font-size: 11px; }
+.goals-denial-note p, .goals-notes>p { margin: 3px 0; }
+.goals-record-denied .goals-record-amount { color: #8b6770; }
 @media(max-width:700px){
+ .goals-overview { grid-template-columns: 1fr; gap: 16px; }
+ .goals-overview .goals-advisor-commissions { border-left: 0; border-top: 1px solid var(--line); padding: 16px 0 0; }
+ .goals-month-chart.is-advisor .goals-month-bar { grid-template-columns: 68px minmax(35px,1fr) 42px; }
  .goals-kpis { grid-template-columns: 1fr; gap: 8px; }
  .goals-kpis article { grid-template-columns: 1fr auto; align-items: center; }
  .goals-toolbar-actions { width: 100%; }
