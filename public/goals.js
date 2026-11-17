@@ -15,7 +15,7 @@ export async function renderGoals(context){
   }
   let data;
   const find=selector=>root.querySelector(selector);
-  const username=(account.match(/\(([^)]+)\)\s*$/)||[])[1];
+  let username=(account.match(/\(([^)]+)\)\s*$/)||[])[1];
 
   function recordForm(previous){
     const values=previous||{};
@@ -46,7 +46,7 @@ export async function renderGoals(context){
       const total=service?ACTIVITIES.reduce((sum,activity)=>{
         const responsible=editor.querySelector('[name='+activity.id+']').value;
         const freeClosing=activity.id==='closing'&&responsible===MICHELIN_CLOSER.username;
-        return sum+(responsible&&!freeClosing?service.rates[activity.id]:0);
+        return sum+(responsible&&!freeClosing&&(admin||responsible===username)?service.rates[activity.id]:0);
       },0):0;
       editor.querySelector('#goals-calculation').textContent='Comisión del registro · '+money(total);
     };
@@ -57,19 +57,29 @@ export async function renderGoals(context){
   function draw(){
     const target=data.targets[selectedMonth]??8;
     const active=data.accounts.filter(person=>person.active);
-    const summary=monthlyMetrics(data.records,selectedMonth,target,active);
+    const metricsForMonth=month=>{
+      const metrics=monthlyMetrics(data.records,month,data.targets[month]??8,active);
+      if(!admin){
+        metrics.people=metrics.people.filter(person=>person.username===username);
+        metrics.total=metrics.people.reduce((total,person)=>total+person.total,0);
+      }
+      metrics.sales=data.teamSales?.[month]??metrics.sales;
+      metrics.percentage=Math.round(metrics.sales/metrics.target*1000)/10;
+      return metrics;
+    };
+    const summary=metricsForMonth(selectedMonth);
     const records=data.records.filter(record=>record.date.startsWith(selectedMonth+'-')).sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt.localeCompare(a.createdAt));
     const year=selectedMonth.slice(0,4);
     const months=Array.from({length:12},(_,index)=>{
       const month=year+'-'+String(index+1).padStart(2,'0');
-      return {month,...monthlyMetrics(data.records,month,data.targets[month]??8)};
+      return {month,...metricsForMonth(month)};
     });
     root.innerHTML=`<div class="goals-toolbar"><label>Mes de consulta<input id="goals-month" type="month" value="${selectedMonth}" required></label><div class="goals-toolbar-actions"><button type="button" id="goals-refresh">Actualizar</button>${admin?'<button type="button" id="goals-target">Modificar meta</button>':''}<button type="button" id="goals-new" class="primary">+ Registrar comisión</button></div></div>
       <section class="panel goals-progress"><div class="goals-progress-heading"><div><span class="goals-eyebrow">META COMPARTIDA · ${esc(monthName(selectedMonth))}</span><h2>${summary.sales} <small>de ${target} ventas cerradas</small></h2></div><strong class="goals-percentage">${summary.percentage}%</strong></div><progress max="${target}" value="${Math.min(summary.sales,target)}" aria-label="Avance de la meta mensual compartida"></progress><p>${summary.sales>=target?'Meta cumplida':(target-summary.sales)+' ventas pendientes'} · Participan todas las asesoras activas.</p></section>
-      <div class="goals-kpis"><article class="panel"><span>Ventas cerradas</span><strong>${summary.sales}</strong></article><article class="panel goals-advisor-commissions"><span>Comisiones del mes por asesora</span><dl>${summary.people.filter(person=>person.username!=='external:michelin'&&person.total>0).map(person=>`<div><dt>${esc(person.name)}</dt><dd>${money(person.total)}</dd></div>`).join('')||'<div><dt>Sin comisiones en este mes</dt><dd>—</dd></div>'}</dl></article><article class="panel"><span>Asesoras activas</span><strong>${active.length}</strong></article></div>
-      <section class="panel"><h2>Resumen mensual por asesora</h2><div class="goals-table-scroll" tabindex="0" role="region" aria-label="Comisiones por asesora"><table class="goals-table"><thead><tr><th>Asesora</th><th>Cierre</th><th>Firma</th><th>Registro</th><th>Total del mes</th><th>Ventas cerradas</th></tr></thead><tbody>${summary.people.map(person=>`<tr><th scope="row">${esc(person.name)}</th><td>${money(person.closing)}</td><td>${money(person.signature)}</td><td>${money(person.registration)}</td><td><strong>${money(person.total)}</strong></td><td>${person.sales}</td></tr>`).join('')}<tr class="goals-total"><th scope="row">Total del equipo</th>${ACTIVITIES.map(activity=>'<td>'+money(summary.people.reduce((sum,person)=>sum+person[activity.id],0))+'</td>').join('')}<td>${money(summary.total)}</td><td>${summary.sales}</td></tr></tbody></table></div></section>
-      <section class="panel"><h2>Registro de comisiones</h2><p class="hint">${records.length} registros en ${esc(monthName(selectedMonth))}.</p><div class="goals-table-scroll" tabindex="0" role="region" aria-label="Registro mensual de comisiones"><table class="goals-table"><thead><tr><th>Fecha</th><th>Cliente / código</th><th>Servicio</th><th>Contrato</th>${ACTIVITIES.map(activity=>'<th>'+activity.name+'</th>').join('')}<th>Comisión</th><th>Observaciones</th><th><span class="sr-only">Acciones</span></th></tr></thead><tbody>${records.length?records.map(record=>`<tr><td>${esc(record.date.split('-').reverse().join('/'))}</td><th scope="row">${esc(record.code)}</th><td>${esc(SERVICES.find(service=>service.id===record.service)?.name)}</td><td>${esc(record.contractType)}</td>${ACTIVITIES.map(activity=>'<td>'+esc(record.activities[activity.id]?.name||'—')+'</td>').join('')}<td>${money(ACTIVITIES.reduce((sum,activity)=>sum+(record.activities[activity.id]?record.rates[activity.id]:0),0))}</td><td class="goals-notes">${esc(record.notes||'—')}</td><td>${admin||record.createdBy===username?'<button type="button" data-goals-edit="'+esc(record.id)+'" aria-label="Editar comisión de '+esc(record.code)+'">Editar</button>':''}</td></tr>`).join(''):'<tr><td colspan="10" class="goals-empty">Aún no hay registros en este mes.</td></tr>'}</tbody></table></div></section>
-      <section class="panel"><h2>Estadísticas mensuales · ${year}</h2><p class="hint">Ventas cerradas, cumplimiento y comisiones de los doce meses.</p><div class="goals-month-chart">${months.map(item=>`<button type="button" data-goals-month="${item.month}" class="goals-month-bar ${item.month===selectedMonth?'is-selected':''}" aria-label="${esc(monthName(item.month))}, ${item.sales} de ${item.target} ventas, ${item.percentage}%"><span>${esc(monthName(item.month).split(' ')[0])}</span><span class="goals-chart-track"><span style="width:${Math.min(item.percentage,100)}%"></span></span><strong>${item.sales}/${item.target}</strong><small>${money(item.total)}</small></button>`).join('')}</div></section>
+      <div class="goals-kpis"><article class="panel"><span>Ventas cerradas</span><strong>${summary.sales}</strong></article><article class="panel goals-advisor-commissions"><span>${admin?'Comisiones del mes por asesora':'Mi comisión del mes'}</span><dl>${summary.people.filter(person=>person.username!=='external:michelin'&&person.total>0).map(person=>`<div><dt>${esc(person.name)}</dt><dd>${money(person.total)}</dd></div>`).join('')||'<div><dt>Sin comisiones en este mes</dt><dd>—</dd></div>'}</dl></article><article class="panel"><span>Asesoras activas</span><strong>${active.length}</strong></article></div>
+      <section class="panel"><h2>${admin?'Resumen mensual por asesora':'Mi resumen mensual'}</h2><div class="goals-table-scroll" tabindex="0" role="region" aria-label="Comisiones por asesora"><table class="goals-table"><thead><tr><th>Asesora</th><th>Cierre</th><th>Firma</th><th>Registro</th><th>Total del mes</th><th>Ventas cerradas</th></tr></thead><tbody>${summary.people.map(person=>`<tr><th scope="row">${esc(person.name)}</th><td>${money(person.closing)}</td><td>${money(person.signature)}</td><td>${money(person.registration)}</td><td><strong>${money(person.total)}</strong></td><td>${person.sales}</td></tr>`).join('')}${admin?`<tr class="goals-total"><th scope="row">Total del equipo</th>${ACTIVITIES.map(activity=>'<td>'+money(summary.people.reduce((sum,person)=>sum+person[activity.id],0))+'</td>').join('')}<td>${money(summary.total)}</td><td>${summary.sales}</td></tr>`:''}</tbody></table></div></section>
+      <section class="panel"><h2>Registro de comisiones</h2><p class="hint">${records.length} registros en ${esc(monthName(selectedMonth))}.</p><div class="goals-table-scroll" tabindex="0" role="region" aria-label="Registro mensual de comisiones"><table class="goals-table"><thead><tr><th>Fecha</th><th>Cliente / código</th><th>Servicio</th><th>Contrato</th>${ACTIVITIES.map(activity=>'<th>'+activity.name+'</th>').join('')}<th>${admin?'Comisión':'Mi comisión'}</th><th>Observaciones</th><th><span class="sr-only">Acciones</span></th></tr></thead><tbody>${records.length?records.map(record=>`<tr><td>${esc(record.date.split('-').reverse().join('/'))}</td><th scope="row">${esc(record.code)}</th><td>${esc(SERVICES.find(service=>service.id===record.service)?.name)}</td><td>${esc(record.contractType)}</td>${ACTIVITIES.map(activity=>'<td>'+esc(record.activities[activity.id]?.name||'—')+'</td>').join('')}<td>${money(ACTIVITIES.reduce((sum,activity)=>sum+(record.activities[activity.id]&&(admin||record.activities[activity.id].username===username)?record.rates[activity.id]:0),0))}</td><td class="goals-notes">${esc(record.notes||'—')}</td><td>${admin||record.createdBy===username?'<button type="button" data-goals-edit="'+esc(record.id)+'" aria-label="Editar comisión de '+esc(record.code)+'">Editar</button>':''}</td></tr>`).join(''):'<tr><td colspan="10" class="goals-empty">Aún no hay registros en este mes.</td></tr>'}</tbody></table></div></section>
+      <section class="panel"><h2>Estadísticas mensuales · ${year}</h2><p class="hint">${admin?'Ventas cerradas, cumplimiento y comisiones de los doce meses.':'Avance del equipo y mis comisiones de los doce meses.'}</p><div class="goals-month-chart">${months.map(item=>`<button type="button" data-goals-month="${item.month}" class="goals-month-bar ${item.month===selectedMonth?'is-selected':''}" aria-label="${esc(monthName(item.month))}, ${item.sales} de ${item.target} ventas, ${item.percentage}%"><span>${esc(monthName(item.month).split(' ')[0])}</span><span class="goals-chart-track"><span style="width:${Math.min(item.percentage,100)}%"></span></span><strong>${item.sales}/${item.target}</strong><small>${money(item.total)}</small></button>`).join('')}</div></section>
       <details class="panel goals-rates"><summary>Tabla de tarifas de comisión</summary><div class="goals-table-scroll"><table class="goals-table"><thead><tr><th>Actividad</th>${SERVICES.filter(service=>!service.legacy).map(service=>'<th>'+service.name+'</th>').join('')}</tr></thead><tbody>${ACTIVITIES.map(activity=>'<tr><th>'+activity.name+'</th>'+SERVICES.filter(service=>!service.legacy).map(service=>'<td>'+money(service.rates[activity.id])+'</td>').join('')+'</tr>').join('')}<tr class="goals-total"><th>Total</th>${SERVICES.filter(service=>!service.legacy).map(service=>'<td>'+money(Object.values(service.rates).reduce((sum,value)=>sum+value,0))+'</td>').join('')}</tr></tbody></table></div></details>`;
     find('#goals-month').onchange=event=>{if(event.target.validity.valid&&event.target.value){selectedMonth=event.target.value;refresh();}};
     find('#goals-refresh').onclick=refresh;
@@ -88,7 +98,7 @@ export async function renderGoals(context){
     try{
       const result=await api('goals?month='+encodeURIComponent(selectedMonth));
       if(!root.isConnected||ticket!==generation)return;
-      data=result;draw();
+      data=result;username=result.username||username;draw();
     }catch(error){
       if(!root.isConnected||ticket!==generation)return;
       root.innerHTML='<div class="panel"><p role="alert">'+esc(error.message)+'</p><button type="button" id="goals-retry">Volver a intentar</button></div>';
