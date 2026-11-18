@@ -43,6 +43,13 @@ export function prepareGoalRecord(input:any, codes:any[], advisors:Advisor[], vi
   };
 }
 
+export function commissionEditNotifications(data:any){
+  return (data.audit||[]).filter((entry:any)=>entry.kind==='record'&&entry.before&&entry.after&&(entry.actorRole?entry.actorRole==='advisor':entry.account&&entry.account!=='administrador')).map((entry:any)=>({
+    id:entry.id||entry.at+':'+entry.after.id+':'+entry.after.revision,
+    at:entry.at,account:entry.account,before:entry.before,after:entry.after,reviewedAt:entry.reviewedAt||null
+  }));
+}
+
 export async function handleGoals(
   req:http.IncomingMessage,url:URL,pool:Pool|null,viewer:Viewer|undefined,
   readBody:()=>Promise<Buffer>,send:(status:number,value:any)=>void
@@ -58,12 +65,13 @@ export async function handleGoals(
       pool.query('SELECT username,name,active FROM advisor_accounts ORDER BY name')
     ]);
     const data=result.rows[0].data;
-    send(200,{records:data.records.filter((item:any)=>item.date.startsWith(year+'-')),targets:data.targets,accounts:accounts.rows});
+    send(200,{records:data.records.filter((item:any)=>item.date.startsWith(year+'-')),targets:data.targets,accounts:accounts.rows,...(viewer.role==='admin'?{notifications:commissionEditNotifications(data)}:{})});
     return;
   }
   if(req.method!=='POST'){send(405,{error:'Método no permitido'});return;}
   const input=JSON.parse((await readBody()).toString());
-  if(!['record','target','commissionStatus'].includes(input.kind))throw Error('Operación inválida');
+  if(!['record','target','commissionStatus','reviewEdits'].includes(input.kind))throw Error('Operación inválida');
+  if(input.kind==='reviewEdits'&&viewer.role!=='admin'){send(403,{error:'Solo el administrador puede revisar las modificaciones'});return;}
   if(typeof input.key!=='string'||input.key.length<8||input.key.length>100)throw Error('Identificador de operación inválido');
   if(input.kind==='target'&&viewer.role!=='admin'){send(403,{error:'Solo el administrador puede modificar la meta'});return;}
   if(input.kind==='commissionStatus'&&viewer.role!=='admin'){send(403,{error:'Solo el administrador puede negar o restablecer una comisión'});return;}
@@ -77,6 +85,15 @@ export async function handleGoals(
       await db.query('ROLLBACK');send(200,{ok:true});return;
     }
     const payload=input.data||{};
+    if(input.kind==='reviewEdits'){
+      if(!Array.isArray(payload.ids)||!payload.ids.length||payload.ids.length>100||payload.ids.some((id:any)=>typeof id!=='string'))throw Error('Selecciona las modificaciones que deseas revisar');
+      const available=new Set(commissionEditNotifications(data).map((entry:any)=>entry.id));
+      if(payload.ids.some((id:string)=>!available.has(id)))throw Error('Modificación inexistente');
+      for(const entry of data.audit){const id=entry.id||entry.at+':'+entry.after?.id+':'+entry.after?.revision;if(payload.ids.includes(id)&&!entry.reviewedAt){entry.reviewedAt=new Date().toISOString();entry.reviewedBy=viewer.account;}}
+      data.requests[input.key]=digest;
+      await db.query('UPDATE commercial_goals SET data=$1 WHERE id=1',[JSON.stringify(data)]);
+      await db.query('COMMIT');send(200,{ok:true});return;
+    }
     let before:any,after:any;
     if(input.kind==='target'){
       if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(payload.month)||!Number.isSafeInteger(payload.quantity)||payload.quantity<1||payload.quantity>10000)throw Error('Indica un mes y una meta entera mayor a cero');
@@ -104,7 +121,7 @@ export async function handleGoals(
       if(previous)data.records[data.records.indexOf(previous)]=after;
       else data.records.push(after);
     }
-    data.audit.push({at:new Date().toISOString(),account:viewer.account,kind:input.kind,month:payload.month||after.date.slice(0,7),before,after});
+    data.audit.push({id:randomUUID(),actorRole:viewer.role,at:new Date().toISOString(),account:viewer.account,kind:input.kind,month:payload.month||after.date.slice(0,7),before,after});
     data.requests[input.key]=digest;
     await db.query('UPDATE commercial_goals SET data=$1 WHERE id=1',[JSON.stringify(data)]);
     await db.query('COMMIT');send(200,{ok:true});
