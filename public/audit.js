@@ -29,3 +29,19 @@ export function auditHTML(entry) {
   }
   return `<details class="line"><summary>${escape(new Date(entry.at).toLocaleString('es-PE',{timeZone:'America/Lima'}))} · ${escape(kinds[entry.kind]||entry.kind)}</summary><p>Cuenta: ${escape(entry.account)} · Motivo: ${escape(entry.reason||'Operación registrada')}</p>${changes.join('')||'<p>No se alteraron datos de negocio.</p>'}</details>`;
 }
+
+// Reuse the saved audit, including edits made before notifications were introduced.
+export function clientEditNotifications(entries=[]){
+  return entries.filter(entry=>['editClient','code'].includes(entry.kind)&&entry.account&&entry.account!=='administrador').filter(entry=>['clients','codes'].some(group=>{
+    const before=entry.before||{},after=entry.after||{};
+    return [...new Set([...(before[group]||[]),...(after[group]||[])].map(item=>item.id))].some(id=>JSON.stringify(values(before,group,find(before[group],id)))!==JSON.stringify(values(after,group,find(after[group],id))));
+  }));
+}
+export function clientEditNotificationsHTML(entries=[]){
+  const sorted=[...entries].sort((a,b)=>Number(!!a.clientEditReviewedAt)-Number(!!b.clientEditReviewedAt)||b.at.localeCompare(a.at));
+  const pending=sorted.filter(entry=>!entry.clientEditReviewedAt).length;
+  return '<h2>Modificaciones de clientes</h2><p role="status" aria-live="polite">'+(pending?pending+' '+(pending===1?'modificación pendiente de revisión':'modificaciones pendientes de revisión'):'Sin modificaciones pendientes de revisión')+'</p>'+sorted.map(entry=>{
+    const names=[...new Set([...(entry.after?.clients||[]),...(entry.before?.clients||[])].map(client=>client.name))].join(' · ');
+    return '<details class="line" data-client-notification="'+escape(entry.id)+'"><summary>'+(!entry.clientEditReviewedAt?'Pendiente':'Revisada')+' · '+escape(names||'Cliente')+' · '+escape(entry.account)+' · '+escape(new Date(entry.at).toLocaleString('es-PE',{timeZone:'America/Lima'}))+'</summary>'+auditHTML(entry)+(!entry.clientEditReviewedAt?'<button type="button" data-review-client-edit="'+escape(entry.id)+'">Marcar como revisada</button>':'')+'</details>';
+  }).join('');
+}

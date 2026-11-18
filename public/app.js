@@ -1,5 +1,5 @@
 import {renderGoals} from './goals.js';
-import {auditHTML} from './audit.js';
+import {auditHTML,clientEditNotificationsHTML} from './audit.js';
 import {filterBlocks,filterEvents} from './query.js';
 let s={clients:[],codes:[],blocks:[],events:[],legacy:[],catalogs:{types:[],responsible:[],storage:[]}},admin=false,canEdit=false,view='portal',movementMode='current',sessionAccount='',adminClientSelection='',preview=null,modalVersion=0;
 const uid=()=>{if(globalThis.crypto.randomUUID)return globalThis.crypto.randomUUID();const bytes=globalThis.crypto.getRandomValues(new Uint8Array(16));return Array.from(bytes,x=>x.toString(16).padStart(2,'0')).join('');};
@@ -59,13 +59,16 @@ function matchBlocks(){return filterBlocks(s,params(),showingHistory());}
 function renderPortal(){
  const greeting=canEdit?'Hola, '+(admin?'Administrador':advisorFirstName()):'Bienvenido';
  $('#screen').innerHTML=`<section class="workspace-welcome"><span class="workspace-eyebrow">SISTEMA COMERCIAL</span><h2>${esc(greeting)}</h2><p>Selecciona el espacio en el que deseas trabajar.</p></section><div class="workspace-modules"><article class="workspace-module"><span class="workspace-module-icon">${actionIcon('folder')}</span><span class="workspace-status">Disponible</span><h2>Archivos de clientes</h2><p>Consulta documentos, registra destinos y revisa el historial de cada cliente.</p><button type="button" id="open-client-files" class="primary">Abrir archivos de clientes <span aria-hidden="true">→</span></button></article><article class="workspace-module"><span class="workspace-module-icon">${actionIcon('target')}</span><span class="workspace-status">Disponible</span><h2>Metas comerciales</h2><p>Registra comisiones y consulta el avance de la meta compartida de cada mes.</p><button type="button" id="open-commercial-goals" class="primary">Abrir metas comerciales <span aria-hidden="true">→</span></button></article></div>${canEdit?`<section class="workspace-management"><span class="workspace-module-icon">${actionIcon('settings')}</span><div><h2>${admin?'Administración general':'Clientes'}</h2><p>${admin?'Accede a usuarios, clientes y opciones del sistema.':'Consulta y actualiza los datos de tus clientes.'}</p></div><button type="button" id="open-workspace-admin">${admin?'Abrir administración':'Administrar clientes'}</button></section>`:''}`;
+ renderClientEditNotices();
  $('#open-client-files').onclick=()=>{view='history';render();};
  $('#open-commercial-goals').onclick=()=>{view='goals';render();};
  const management=$('#open-workspace-admin');
  if(management)management.onclick=()=>{view='admin';render();};
 }
 
+let clientNoticeTimer;
 function render(){
+ clearTimeout(clientNoticeTimer);
  
  const headings={goals:['Metas comerciales','Metas comerciales','Meta compartida, comisiones y estadísticas mensuales.'],portal:['Inicio','Sistema Comercial','Tus espacios de trabajo, en un solo lugar.'],history:['Movimientos','Movimientos','Busca documentos, consulta su ubicación y revisa su historial.'],legacy:['Por conciliar','Registros por conciliar','Revisa los registros importados y vincúlalos con los archivos actuales.'],admin:['Administración','Administración','Gestiona clientes, contratos, catálogos y auditoría.']};const heading=headings[view]||headings.history;$('#view-label').textContent=heading[0];$('#view-title').textContent=heading[1];$('#view-description').textContent=heading[2];$('#access-badge').textContent=admin?'Administrador':canEdit?advisorFirstName():'Solo consulta';document.querySelectorAll('[data-view]').forEach(el=>{if(el.dataset.view===view)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
  $('#session').innerHTML=admin?'Cerrar sesión · Administrador':canEdit?actionIcon('cliente')+'<span>'+esc(advisorFirstName())+'</span>':'Iniciar sesión';$('#session').setAttribute('aria-label',canEdit&&!admin?'Cerrar sesión de '+advisorFirstName():$('#session').textContent);$('#session').title=canEdit?'Cerrar sesión':'';
@@ -290,7 +293,33 @@ function wireAdminClientSearch(){
  $('#admin-client-clear').onclick=()=>{adminClientSelection='';input.value='';panel.hidden=true;input.setAttribute('aria-expanded','false');apply();input.focus();};
  if(adminClientSelection)input.value=s.clients.find(customer=>customer.id===adminClientSelection)?.name||'';apply();
 }
+
+function renderClientEditNotices(){
+ if(!admin)return;
+ $('#screen').insertAdjacentHTML('afterbegin','<section class="panel" id="client-edit-notifications" aria-label="Modificaciones de clientes"><p role="status">Cargando modificaciones de clientes…</p></section>');
+ const root=$('#client-edit-notifications');let generation=0;
+ const poll=()=>{if(!admin||!root.isConnected)return;if($('#modal[open]')){clientNoticeTimer=setTimeout(poll,30000);return;}refresh();};
+ async function refresh(){
+  clearTimeout(clientNoticeTimer);const ticket=++generation;
+  try{
+   const data=await api('client-edit-notifications');
+   if(!admin||!root.isConnected||ticket!==generation)return;
+   const open=new Set([...root.querySelectorAll('[data-client-notification][open]')].map(item=>item.dataset.clientNotification));
+   root.innerHTML=clientEditNotificationsHTML(data.notifications);
+   root.querySelectorAll('[data-client-notification]').forEach(item=>{item.open=open.has(item.dataset.clientNotification);});
+   root.querySelectorAll('[data-review-client-edit]').forEach(button=>button.onclick=async()=>{
+    button.disabled=true;
+    try{await api('client-edit-notifications',{id:button.dataset.reviewClientEdit});await refresh();}
+    catch(error){button.disabled=false;const message=document.createElement('p');message.setAttribute('role','alert');message.textContent=error.message;button.after(message);}
+   });
+  }catch(error){if(admin&&root.isConnected&&ticket===generation){root.innerHTML='<p role="alert">'+esc(error.message)+'</p><button type="button" data-retry-client-notices>Volver a intentar</button>';root.querySelector('[data-retry-client-notices]').onclick=refresh;}}
+  finally{if(admin&&root.isConnected&&ticket===generation)clientNoticeTimer=setTimeout(poll,30000);}
+ }
+ return refresh();
+}
+
 function renderAdmin(){if(!canEdit){$('#screen').innerHTML=`<div class="empty">${canEdit?'La administración está disponible solo para el administrador. Puedes registrar y editar desde Archivos.':'Inicia sesión como administrador para gestionar el sistema.'}</div>`;return;}if(!admin){$('#screen').innerHTML='';renderClientManagement();return;}$('#screen').innerHTML='<h2>Administración</h2><div class="toolbar"><button id="advisors">Cuentas de asesores</button><button id="bulk">Carga masiva</button><button id="import">Importar Excel</button><button id="trash">Registros eliminados</button></div><div id="catalog-order-feedback" role="alert" hidden></div><div class="cards">'+Object.entries({responsible:'Responsables comerciales',types:'Tipos de archivo',storage:'Almacenamiento'}).map(([key,title])=>`<section class="panel"><h3>${title}</h3><p class="hint">Arrastra las líneas para cambiar el orden. También puedes usar ↑ y ↓ sobre el asa.</p><ul class="catalog-order-list" data-order-catalog="${key}" aria-label="Orden de ${title}">${s.catalogs[key].filter(x=>!x.deleted).map(x=>`<li class="catalog-order-row" data-order-id="${x.id}"><button type="button" class="catalog-grip" aria-label="Mover ${esc(x.name)}" title="Arrastra para reordenar o usa las flechas del teclado">${actionIcon('grip')}</button><span>${esc(x.name)} ${x.active?'':'(inactivo)'}</span><button class="catalog-icon-button" data-cat="${key}" data-id="${x.id}" title="Editar ${esc(x.name)}" aria-label="Editar ${esc(x.name)}">${actionIcon('edit')}</button><button class="catalog-icon-button danger" data-delete-catalog="${key}" data-id="${x.id}" title="Eliminar ${esc(x.name)}" aria-label="Eliminar ${esc(x.name)}">${actionIcon('delete')}</button></li>`).join('')}</ul><button data-cat="${key}">+ Agregar</button></section>`).join('')+'</div><details data-audit><summary>Auditoría administrativa</summary>'+(s.audit||[]).slice(-30).reverse().map(auditHTML).join('')+'</details>';
+ renderClientEditNotices();
  document.querySelectorAll('[data-delete-catalog]').forEach(button=>button.onclick=()=>{const key=button.dataset.deleteCatalog,item=s.catalogs[key].find(x=>x.id===button.dataset.id);deleteConfirmation('Eliminar '+item.name,async password=>{await save('catalogDelete',{catalog:key,id:item.id,expectedRevision:item.revision||0,deletePassword:password,reason:'Opción eliminada desde Administración'});});});wireCatalogOrder();$('#advisors').onclick=()=>advisorAccounts();
  renderClientManagement();
  document.querySelectorAll('[data-cat]').forEach(btn=>btn.onclick=()=>{const key=btn.dataset.cat;const old=s.catalogs[key].find(x=>x.id===btn.dataset.id);form(old?'Editar catálogo':'Agregar opción',field('Nombre','name','text',old?.name||'')+(old?field('Motivo','reason','text','',false)+`<label>Estado<select name="active"><option value="true">Activo</option><option value="false" ${old.active?'':'selected'}>Inactivo</option></select></label>`+(key==='responsible'?'<button type="button" id="responsible-access">Ver usuario y PIN del asesor</button>':''):''),async(f,k)=>save('catalog',{...Object.fromEntries(f),catalog:key,id:old?.id,active:f.get('active')!=='false'},k));if($('#responsible-access'))$('#responsible-access').onclick=()=>advisorAccounts(old.name);});$('#import').onclick=importExcel;$('#bulk').onclick=bulkLoads;$('#trash').onclick=showDeleted;
