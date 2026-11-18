@@ -21,7 +21,7 @@ export function recordCommission(record){
 export function monthlyMetrics(records, month, target=8, accounts=[]){
   const people=new Map(accounts.map(person=>[person.username,{username:person.username,name:person.name,sales:0,closing:0,signature:0,registration:0,total:0}]));
   let sales=0,total=0;
-  for(const record of records.filter(item=>item.date.startsWith(month+'-')&&!item.commissionDenial)){
+  for(const record of records.filter(item=>item.date.startsWith(month+'-')&&!item.commissionDenial&&!item.deletedAt)){
     if(record.activities.closing)sales++;
     for(const activity of ACTIVITIES){
       const person=record.activities[activity.id];

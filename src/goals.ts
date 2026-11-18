@@ -44,7 +44,7 @@ export function prepareGoalRecord(input:any, codes:any[], advisors:Advisor[], vi
 }
 
 export function commissionEditNotifications(data:any){
-  return (data.audit||[]).filter((entry:any)=>entry.kind==='record'&&entry.before&&entry.after&&(entry.actorRole?entry.actorRole==='advisor':entry.account&&entry.account!=='administrador')).map((entry:any)=>({
+  return (data.audit||[]).filter((entry:any)=>['record','deleteRecord'].includes(entry.kind)&&entry.before&&entry.after&&(entry.actorRole?entry.actorRole==='advisor':entry.account&&entry.account!=='administrador')).map((entry:any)=>({
     id:entry.id||entry.at+':'+entry.after.id+':'+entry.after.revision,
     at:entry.at,account:entry.account,before:entry.before,after:entry.after,reviewedAt:entry.reviewedAt||null
   }));
@@ -52,7 +52,7 @@ export function commissionEditNotifications(data:any){
 
 export async function handleGoals(
   req:http.IncomingMessage,url:URL,pool:Pool|null,viewer:Viewer|undefined,
-  readBody:()=>Promise<Buffer>,send:(status:number,value:any)=>void
+  readBody:()=>Promise<Buffer>,send:(status:number,value:any)=>void,authorizeDeletion?:(password:any)=>Promise<void>
 ){
   if(!viewer||!['admin','advisor'].includes(viewer.role)){send(403,{error:'Inicia sesión para consultar Metas comerciales'});return;}
   if(!pool)throw Error('Base de datos no configurada');
@@ -65,16 +65,21 @@ export async function handleGoals(
       pool.query('SELECT username,name,active FROM advisor_accounts ORDER BY name')
     ]);
     const data=result.rows[0].data;
-    send(200,{records:data.records.filter((item:any)=>item.date.startsWith(year+'-')),targets:data.targets,accounts:accounts.rows,...(viewer.role==='admin'?{notifications:commissionEditNotifications(data)}:{})});
+    send(200,{records:data.records.filter((item:any)=>!item.deletedAt&&item.date.startsWith(year+'-')),targets:data.targets,accounts:accounts.rows,...(viewer.role==='admin'?{notifications:commissionEditNotifications(data)}:{})});
     return;
   }
   if(req.method!=='POST'){send(405,{error:'Método no permitido'});return;}
   const input=JSON.parse((await readBody()).toString());
-  if(!['record','target','commissionStatus','reviewEdits'].includes(input.kind))throw Error('Operación inválida');
+  if(!['record','target','commissionStatus','reviewEdits','deleteRecord'].includes(input.kind))throw Error('Operación inválida');
   if(input.kind==='reviewEdits'&&viewer.role!=='admin'){send(403,{error:'Solo el administrador puede revisar las modificaciones'});return;}
   if(typeof input.key!=='string'||input.key.length<8||input.key.length>100)throw Error('Identificador de operación inválido');
   if(input.kind==='target'&&viewer.role!=='admin'){send(403,{error:'Solo el administrador puede modificar la meta'});return;}
   if(input.kind==='commissionStatus'&&viewer.role!=='admin'){send(403,{error:'Solo el administrador puede negar o restablecer una comisión'});return;}
+  if(input.kind==='deleteRecord'){
+    if(!authorizeDeletion)throw Error('La verificación de contraseña no está disponible');
+    await authorizeDeletion(input.data?.deletePassword);
+    input.data={...input.data};delete input.data.deletePassword;
+  }
   const digest=createHash('sha256').update(JSON.stringify({kind:input.kind,data:input.data,actor:viewer.account})).digest('hex');
   const db=await pool.connect();
   try{
@@ -95,14 +100,22 @@ export async function handleGoals(
       await db.query('COMMIT');send(200,{ok:true});return;
     }
     let before:any,after:any;
-    if(input.kind==='target'){
+    if(input.kind==='deleteRecord'){
+      const previous=data.records.find((item:any)=>item.id===payload.id&&!item.deletedAt);
+      if(!previous)throw Error('Registro inexistente o eliminado');
+      if(payload.revision!==previous.revision)throw Error('El registro cambió. Actualiza la consulta.');
+      before=previous;
+      const at=new Date().toISOString();
+      after={...previous,revision:previous.revision+1,deletedAt:at,deletedBy:viewer.account,updatedAt:at,updatedBy:viewer.account};
+      data.records[data.records.indexOf(previous)]=after;
+    }else if(input.kind==='target'){
       if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(payload.month)||!Number.isSafeInteger(payload.quantity)||payload.quantity<1||payload.quantity>10000)throw Error('Indica un mes y una meta entera mayor a cero');
       before=data.targets[payload.month]??8;
       if(payload.previous!==before)throw Error('La meta cambió. Actualiza la consulta.');
       data.targets[payload.month]=payload.quantity;
       after=payload.quantity;
     }else if(input.kind==='commissionStatus'){
-      const previous=data.records.find((item:any)=>item.id===payload.id);
+      const previous=data.records.find((item:any)=>item.id===payload.id&&!item.deletedAt);
       if(!previous)throw Error('Registro inexistente');
       if(payload.revision!==previous.revision)throw Error('El registro cambió. Actualiza la consulta.');
       if(typeof payload.denied!=='boolean')throw Error('Estado de comisión inválido');
@@ -113,7 +126,7 @@ export async function handleGoals(
       after={...previous,revision:previous.revision+1,commissionDenial:payload.denied?{reason,account:viewer.account,at}:null,updatedBy:viewer.account,updatedAt:at};
       data.records[data.records.indexOf(previous)]=after;
     }else{
-      const previous=payload.id?data.records.find((item:any)=>item.id===payload.id):undefined;
+      const previous=payload.id?data.records.find((item:any)=>item.id===payload.id&&!item.deletedAt):undefined;
       if(payload.id&&!previous)throw Error('Registro inexistente');
       const [files,accounts]=await Promise.all([db.query('SELECT data FROM app_state WHERE id=1'),db.query('SELECT username,name,active FROM advisor_accounts')]);
       after=prepareGoalRecord(payload,files.rows[0].data.codes,accounts.rows,viewer,previous);

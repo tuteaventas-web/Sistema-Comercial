@@ -1,3 +1,4 @@
+import {authorizeGoalDeletion} from './goal-deletion-auth.ts';
 import {handleClientEditNotifications} from './client-notifications.ts';
 import {handleGoals} from './goals.ts';
 import {verifyDeletionCredential} from './deletion-auth.ts';
@@ -74,7 +75,7 @@ export const server=http.createServer(async(req,res)=>{
    if(url.pathname.endsWith('/delete')){confirmDeletion(req,p.deletePassword);const result=await pool.query('DELETE FROM advisor_accounts WHERE username=$1 RETURNING username',[username]);if(!result.rowCount)throw Error('Cuenta inexistente');send(200,{ok:true});}
    else {const row=(await pool.query('SELECT credential_cipher FROM advisor_accounts WHERE username=$1',[username])).rows[0];if(!row)throw Error('Cuenta inexistente');send(200,{password:row.credential_cipher?decryptCredential(row.credential_cipher):null});}return;
   }
-  if(url.pathname==='/api/goals'){await handleGoals(req,url,pool,session(req),()=>body(req),send);return;}
+  if(url.pathname==='/api/goals'){await handleGoals(req,url,pool,session(req),()=>body(req),send,password=>authorizeGoalDeletion(pool,session(req),password,process.env.ADMIN_PASSWORD_HASH||''));return;}
   if(url.pathname==='/api/advisors'){
    if(!auth(req)){send(403,{error:'Solo el administrador puede gestionar cuentas'});return;}
    if(!pool)throw Error('PostgreSQL no configurado');

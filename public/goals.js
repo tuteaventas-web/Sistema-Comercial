@@ -6,8 +6,8 @@ const monthName=value=>new Intl.DateTimeFormat('es-PE',{month:'long',year:'numer
 
 
 export function commissionChanges(before,after){
-  const fields=[['date','Fecha'],['code','Código del cliente'],['service','Servicio'],['contractType','Contrato'],['notes','Observaciones'],...ACTIVITIES.map(activity=>[activity.id,activity.name])];
-  const value=(record,key)=>ACTIVITIES.some(activity=>activity.id===key)?record.activities?.[key]?.name||'Sin asignar':key==='service'?SERVICES.find(service=>service.id===record.service)?.name||record.service:record[key]||'—';
+  const fields=[['date','Fecha'],['code','Código del cliente'],['service','Servicio'],['contractType','Contrato'],['notes','Observaciones'],['deletedAt','Estado'],...ACTIVITIES.map(activity=>[activity.id,activity.name])];
+  const value=(record,key)=>key==='deletedAt'?(record.deletedAt?'Eliminado':'Activo'):ACTIVITIES.some(activity=>activity.id===key)?record.activities?.[key]?.name||'Sin asignar':key==='service'?SERVICES.find(service=>service.id===record.service)?.name||record.service:record[key]||'—';
   return fields.filter(([key])=>JSON.stringify(ACTIVITIES.some(activity=>activity.id===key)?before.activities?.[key]:before[key])!==JSON.stringify(ACTIVITIES.some(activity=>activity.id===key)?after.activities?.[key]:after[key])).map(([key,label])=>({label,before:value(before,key),after:value(after,key)}));
 }
 
@@ -72,18 +72,27 @@ export async function renderGoals(context){
       });
   }
 
+  function deleteRecordForm(record){
+    form('Eliminar comisión','<p>Se eliminará la comisión de <strong>'+esc(record.code)+'</strong> del '+esc(record.date.split('-').reverse().join('/'))+'. Se actualizarán las metas y los totales.</p><p>Confirma con la contraseña o PIN de tu cuenta de inicio de sesión.</p>'+field('Tu contraseña o PIN','deletePassword','password'),async(values,key)=>{
+      await api('goals',{kind:'deleteRecord',key,data:{id:record.id,revision:record.revision,deletePassword:values.get('deletePassword')}});
+      const password=document.querySelector('#form [name=deletePassword]');if(password)password.value='';
+      await refresh();
+    });
+    const button=document.querySelector('#form button[type=submit]');if(button){button.textContent='Eliminar comisión';button.classList.add('danger');}
+  }
+
   function recordRow(record){
     const denial=record.commissionDenial;
     const editIcon='<svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg>';
     const statusIcon=denial?'<svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>':'<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
-    return `<tr class="${denial?'goals-record-denied':''}"><td>${esc(record.date.split('-').reverse().join('/'))}</td><th scope="row">${esc(record.code)}</th><td>${esc(SERVICES.find(service=>service.id===record.service)?.name)}</td><td>${esc(record.contractType)}</td>${ACTIVITIES.map(activity=>'<td>'+esc(record.activities[activity.id]?.name||'—')+'</td>').join('')}<td class="goals-record-amount">${money(recordCommission(record))}${denial?'<small>Denegada</small>':''}</td><td class="goals-notes">${record.notes?'<p>'+esc(record.notes)+'</p>':denial?'':'—'}${denial?'<div class="goals-denial-note"><strong>Comisión denegada</strong><p>'+esc(denial.reason)+'</p></div>':''}</td><td><div class="goals-record-actions">${admin?'<button type="button" class="'+(denial?'':'danger')+'" data-goals-status="'+esc(record.id)+'" title="'+(denial?'Restablecer comisión':'Negar comisión')+'" aria-label="'+(denial?'Restablecer comisión de ':'Negar comisión de ')+esc(record.code)+'">'+statusIcon+'</button>':''}<button type="button" data-goals-edit="${esc(record.id)}" title="Editar comisión" aria-label="Editar comisión de ${esc(record.code)}">${editIcon}</button></div></td></tr>`;
+    return `<tr class="${denial?'goals-record-denied':''}"><td>${esc(record.date.split('-').reverse().join('/'))}</td><th scope="row">${esc(record.code)}</th><td>${esc(SERVICES.find(service=>service.id===record.service)?.name)}</td><td>${esc(record.contractType)}</td>${ACTIVITIES.map(activity=>'<td>'+esc(record.activities[activity.id]?.name||'—')+'</td>').join('')}<td class="goals-record-amount">${money(recordCommission(record))}${denial?'<small>Denegada</small>':''}</td><td class="goals-notes">${record.notes?'<p>'+esc(record.notes)+'</p>':denial?'':'—'}${denial?'<div class="goals-denial-note"><strong>Comisión denegada</strong><p>'+esc(denial.reason)+'</p></div>':''}</td><td><div class="goals-record-actions">${admin?'<button type="button" class="'+(denial?'':'danger')+'" data-goals-status="'+esc(record.id)+'" title="'+(denial?'Restablecer comisión':'Negar comisión')+'" aria-label="'+(denial?'Restablecer comisión de ':'Negar comisión de ')+esc(record.code)+'">'+statusIcon+'</button>':''}<button type="button" data-goals-edit="${esc(record.id)}" title="Editar comisión" aria-label="Editar comisión de ${esc(record.code)}">${editIcon}</button><button type="button" class="danger" data-goals-delete="${esc(record.id)}" title="Eliminar comisión" aria-label="Eliminar comisión de ${esc(record.code)}"><svg class="icon" aria-hidden="true"><use href="#i-delete"/></svg></button></div></td></tr>`;
   }
 
   function notificationsHTML(){
     if(!admin)return '';
     const entries=[...(data.notifications||[])].sort((a,b)=>Number(!!a.reviewedAt)-Number(!!b.reviewedAt)||b.at.localeCompare(a.at));
     const pending=entries.filter(entry=>!entry.reviewedAt).length;
-    return '<section class="panel" id="goals-edit-notifications" aria-label="Modificaciones de asesores"><h2>Modificaciones de asesores</h2><p role="status" aria-live="polite">'+(pending?pending+' '+(pending===1?'modificación pendiente de revisión':'modificaciones pendientes de revisión'):'Sin modificaciones pendientes de revisión')+'</p>'+entries.map(entry=>'<details class="line" data-goal-notification="'+esc(entry.id)+'"><summary>'+(!entry.reviewedAt?'Pendiente · ':'Revisada · ')+esc(entry.after.code)+' · '+esc(entry.account)+' · '+esc(new Date(entry.at).toLocaleString('es-PE',{timeZone:'America/Lima'}))+'</summary><div class="goals-table-scroll"><table class="goals-table"><thead><tr><th>Campo</th><th>Antes</th><th>Después</th></tr></thead><tbody>'+commissionChanges(entry.before,entry.after).map(change=>'<tr><th scope="row">'+esc(change.label)+'</th><td>'+esc(change.before)+'</td><td>'+esc(change.after)+'</td></tr>').join('')+'</tbody></table></div>'+(!entry.reviewedAt?'<button type="button" data-review-goal-edit="'+esc(entry.id)+'">Marcar como revisada</button>':'')+'</details>').join('')+'</section>';
+    return '<section class="panel" id="goals-edit-notifications" aria-label="Modificaciones de asesores"><h2>Modificaciones de asesores</h2><p role="status" aria-live="polite">'+(pending?pending+' '+(pending===1?'modificación pendiente de revisión':'modificaciones pendientes de revisión'):'Sin modificaciones pendientes de revisión')+'</p>'+entries.map(entry=>'<details class="line" data-goal-notification="'+esc(entry.id)+'"><summary>'+(entry.after.deletedAt?'Comisión eliminada · ':'')+(!entry.reviewedAt?'Pendiente · ':'Revisada · ')+esc(entry.after.code)+' · '+esc(entry.account)+' · '+esc(new Date(entry.at).toLocaleString('es-PE',{timeZone:'America/Lima'}))+'</summary><div class="goals-table-scroll"><table class="goals-table"><thead><tr><th>Campo</th><th>Antes</th><th>Después</th></tr></thead><tbody>'+commissionChanges(entry.before,entry.after).map(change=>'<tr><th scope="row">'+esc(change.label)+'</th><td>'+esc(change.before)+'</td><td>'+esc(change.after)+'</td></tr>').join('')+'</tbody></table></div>'+(!entry.reviewedAt?'<button type="button" data-review-goal-edit="'+esc(entry.id)+'">Marcar como revisada</button>':'')+'</details>').join('')+'</section>';
   }
 
   function draw(){
@@ -112,6 +121,7 @@ export async function renderGoals(context){
     find('#goals-refresh').onclick=refresh;
     find('#goals-new').onclick=()=>recordForm();
     root.querySelectorAll('[data-goals-edit]').forEach(button=>button.onclick=()=>recordForm(data.records.find(record=>record.id===button.dataset.goalsEdit)));
+    root.querySelectorAll('[data-goals-delete]').forEach(button=>button.onclick=()=>deleteRecordForm(data.records.find(record=>record.id===button.dataset.goalsDelete)));
     root.querySelectorAll('[data-goals-status]').forEach(button=>button.onclick=()=>commissionStatusForm(data.records.find(record=>record.id===button.dataset.goalsStatus)));
     root.querySelectorAll('[data-goals-month]').forEach(button=>button.onclick=()=>{selectedMonth=button.dataset.goalsMonth;draw();});
     if(admin)find('#goals-target').onclick=()=>form('Modificar meta mensual',field('Meta compartida del equipo','quantity','number',target)+'<p class="hint">Se aplicará a '+esc(monthName(selectedMonth))+'.</p>',async(values,key)=>{
